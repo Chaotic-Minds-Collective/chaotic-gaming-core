@@ -29,10 +29,25 @@ The API listens on `PORT` (default 3001). `GET /health/live` is process liveness
 
 ## Administration commands
 
-- `npm run server:create -- <name> --game <atlas|7dtd|ark> --cluster <cluster-id> --host <hostname> --port <port>`
-- `npm run service:create -- <application-name> --role <role-key> --scope-type <scope-type> --scope-id <scope-id>`
-- `npm run role:assign -- <principal-uuid> <role-key> <scope-type> [scope-id]`
-- `npm run product:upsert -- '<JSON product definition>'`
+Create a game server record:
+
+`npm run server:create -- 7dtd "Main Cluster" "7DTD Main" production`
+
+Configure its public connection details:
+
+`npm run server:configure -- <SERVER_UUID> '{"publicHostname":"play.example.net","gamePort":26900,"queryPort":26901,"maxPlayers":50,"mapName":"Navezgane","isListed":true}'`
+
+Create a least-privilege service account:
+
+`npm run service:create -- 7dtd-heartbeat --role server_heartbeat --scope-type server --scope-id <SERVER_UUID>`
+
+Assign a role to an existing principal:
+
+`npm run role:assign -- <PRINCIPAL_UUID> server_admin server <SERVER_UUID>`
+
+Create or update a draft product:
+
+`npm run product:upsert -- '<JSON product definition>'`
 
 Run administration commands only from a trusted environment with a non-production database until the deployment is approved. Service credentials are printed once; store them in the host's secret manager.
 
