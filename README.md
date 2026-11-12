@@ -13,7 +13,7 @@ Shared Chaotic Gaming platform core: player identity, authentication, scoped aut
 
 ## Plugin ecosystem
 
-The Core also owns the shared plugin lifecycle and registry foundation. Game-specific plugins remain independently versioned and communicate with Core through scoped service identities; they never receive database credentials.
+The Core owns the shared plugin lifecycle and registry foundation. Game-specific plugins remain independently versioned and communicate with Core through scoped service identities; they never receive database credentials.
 
 See the [central plugin catalogue and ecosystem documentation](https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs/tree/main/plugins).
 
@@ -27,9 +27,18 @@ See the [central plugin catalogue and ecosystem documentation](https://github.co
 
 The API listens on `PORT` (default 3001). `GET /health/live` is process liveness; `GET /health/ready` checks PostgreSQL connectivity.
 
+## Administration commands
+
+- `npm run server:create -- <name> --game <atlas|7dtd|ark> --cluster <cluster-id> --host <hostname> --port <port>`
+- `npm run service:create -- <application-name> --role <role-key> --scope-type <scope-type> --scope-id <scope-id>`
+- `npm run role:assign -- <principal-uuid> <role-key> <scope-type> [scope-id]`
+- `npm run product:upsert -- '<JSON product definition>'`
+
+Run administration commands only from a trusted environment with a non-production database until the deployment is approved. Service credentials are printed once; store them in the host's secret manager.
+
 ## Database
 
-Migrations are in `migrations/` and are applied in filename order. The migration runner records applied files in `operations.schema_migrations`. Back up databases before applying migrations. Never point local development at production.
+Migrations are in `migrations/` and are applied in filename order. The migration runner records applied files in `operations.schema_migrations`. A GitHub Actions workflow applies the complete migration chain to a fresh PostgreSQL database. Back up databases before applying migrations. Never point local development at production.
 
 ## Security baseline
 
@@ -40,7 +49,8 @@ Migrations are in `migrations/` and are applied in filename order. The migration
 - Use least-privilege service identities for each integration.
 - Audit authorization-sensitive actions.
 - Payment webhooks must be signature-verified and idempotent before granting entitlements.
+- Plugin catalogue entries never install or execute plugin code.
 
 ## Status
 
-Foundation implementation is committed, but authentication hardening, external identity linking, event consumers, payment integration, game fulfillment workers and production operations remain incomplete. No database migrations have been applied and no production service has been deployed.
+Foundation implementation is committed and CI-tested. External identity linking, account recovery/email verification, payment-provider integration, actual game reward fulfillment, artifact signing/sandboxing and production operations remain incomplete. No production database migrations have been applied and no production service has been deployed.
