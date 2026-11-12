@@ -159,6 +159,27 @@ test("public server listing hides unlisted servers and reward workers use leased
     assert.equal(steamLinkResponse.statusCode, 201, steamLinkResponse.body);
     assert.equal(steamLinkResponse.json().data.externalId, steamExternalId);
 
+    const nonceReplayState = randomBytes(32).toString("base64url");
+    const nonceReplayChallenge = await app.inject({
+      method: "POST",
+      url: "/auth/steam-link/challenge",
+      headers: { authorization: "Bearer " + playerSession.token },
+      payload: { state: nonceReplayState },
+    });
+    assert.equal(nonceReplayChallenge.statusCode, 201);
+    const nonceReplayAssertion = {
+      ...steamAssertion,
+      "openid.return_to": "https://www.chaoticmindsgaming.com/api/account/link/steam/callback?state=" + nonceReplayState,
+    };
+    const nonceReplayResponse = await app.inject({
+      method: "POST",
+      url: "/auth/linked-accounts/steam",
+      headers: { authorization: "Bearer " + playerSession.token },
+      payload: { state: nonceReplayState, assertion: nonceReplayAssertion },
+    });
+    assert.equal(nonceReplayResponse.statusCode, 409);
+    assert.equal(nonceReplayResponse.json().error.code, "STEAM_ASSERTION_REPLAYED");
+
     const steamReplayResponse = await app.inject({
       method: "POST",
       url: "/auth/linked-accounts/steam",
