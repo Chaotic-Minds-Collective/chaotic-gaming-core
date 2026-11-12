@@ -8,7 +8,7 @@ Create a service identity from a trusted administrative environment:
 
 The command prints a high-entropy credential once. Store it in the integration's secret manager/environment and do not commit it. New service accounts receive no permissions by default.
 
-Assign a role only after creating the target server and reviewing scope. For a server adapter, assign `server_admin` with `scope_type='server'` and `scope_id=<server UUID>`. Do not grant platform-wide access to bots or game adapters.
+For a game status reporter such as Glitch Bot, assign the `server_heartbeat` role with `scope_type='server'` and `scope_id=<server UUID>`. This grants only `servers.heartbeat`, not server administration. Game adapters that need administrative capabilities must receive separately reviewed roles.
 
 ## Server heartbeat
 
@@ -28,7 +28,7 @@ Body:
 }
 ```
 
-Requires `servers.manage` for the exact server scope or a platform-level grant. The server must exist and its game key must match. Heartbeats are append-only records; the latest received record is the current observed status.
+Requires `servers.heartbeat` for the exact server scope or a platform-level grant. The server must exist and its game key must match. Heartbeats are append-only records; the latest received record is the current observed status.
 
 ## Security notes
 

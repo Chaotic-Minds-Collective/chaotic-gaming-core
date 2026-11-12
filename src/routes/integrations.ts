@@ -22,7 +22,7 @@ export async function registerIntegrationRoutes(app: FastifyInstance): Promise<v
       return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "A valid server ID and heartbeat payload are required." } });
     }
 
-    const actorId = await requireServicePermission(request, reply, "servers.manage", "server", params.data.serverId);
+    const actorId = await requireServicePermission(request, reply, "servers.heartbeat", "server", params.data.serverId);
     if (!actorId) return;
 
     const observedAt = body.data.observedAt ? new Date(body.data.observedAt) : new Date();
@@ -53,7 +53,7 @@ export async function registerIntegrationRoutes(app: FastifyInstance): Promise<v
       await client.query("COMMIT");
       return reply.code(202).send({ data: { accepted: true, serverId: params.data.serverId, receivedAt: new Date().toISOString() }, requestId: request.id });
     } catch (error) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => undefined);
       request.log.error({ err: error }, "Server heartbeat failed");
       return reply.code(500).send({ error: { code: "HEARTBEAT_FAILED", message: "The heartbeat could not be recorded." } });
     } finally {
