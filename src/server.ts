@@ -1,22 +1,23 @@
 import { buildApp } from "./app.js";
 import { config } from "./config.js";
-import { pool } from "./db.js";
+import { pool } from "./db/pool.js";
 
-const app = buildApp();
+const app = await buildApp();
 
 try {
   await app.listen({ host: config.HOST, port: config.PORT });
 } catch (error) {
   app.log.error(error);
-  process.exitCode = 1;
+  await pool.end();
+  process.exit(1);
 }
 
-async function shutdown(signal: string): Promise<void> {
+const shutdown = async (signal: string) => {
   app.log.info({ signal }, "Shutting down");
   await app.close();
-  await pool?.end();
+  await pool.end();
   process.exit(0);
-}
+};
 
-process.on("SIGINT", () => void shutdown("SIGINT"));
-process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.once("SIGINT", () => void shutdown("SIGINT"));
+process.once("SIGTERM", () => void shutdown("SIGTERM"));
