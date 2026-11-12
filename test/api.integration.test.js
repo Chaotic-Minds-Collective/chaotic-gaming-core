@@ -111,6 +111,15 @@ test("public server listing hides unlisted servers and reward workers use leased
       headers: { "user-agent": "core-integration-test" },
       ip: "127.0.0.1",
     });
+    const steamState = randomBytes(32).toString("base64url");
+    const challengeResponse = await app.inject({
+      method: "POST",
+      url: "/auth/steam-link/challenge",
+      headers: { authorization: "Bearer " + playerSession.token },
+      payload: { state: steamState },
+    });
+    assert.equal(challengeResponse.statusCode, 201, challengeResponse.body);
+
     const nonceTimestamp = new Date().toISOString().replace(/\\.\\d{3}Z$/, "Z");
     const steamAssertion = {
       "openid.ns": "http://specs.openid.net/auth/2.0",
@@ -129,7 +138,7 @@ test("public server listing hides unlisted servers and reward workers use leased
       method: "POST",
       url: "/auth/linked-accounts/steam",
       headers: { authorization: "Bearer " + playerSession.token },
-      payload: steamAssertion,
+      payload: { state: steamState, assertion: steamAssertion },
     });
     assert.equal(steamLinkResponse.statusCode, 201, steamLinkResponse.body);
     assert.equal(steamLinkResponse.json().data.externalId, steamExternalId);
@@ -141,7 +150,7 @@ test("public server listing hides unlisted servers and reward workers use leased
       payload: steamAssertion,
     });
     assert.equal(steamReplayResponse.statusCode, 409);
-    assert.equal(steamReplayResponse.json().error.code, "STEAM_ASSERTION_REPLAYED");
+    assert.equal(steamReplayResponse.json().error.code, "STEAM_STATE_INVALID");
     globalThis.fetch = originalFetch;
 
     const resolvedSteamLink = await app.inject({
