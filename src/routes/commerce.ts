@@ -63,7 +63,7 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
       "FROM commerce.product_game_mappings pgm " +
       "JOIN core.servers s ON s.id = pgm.server_id AND s.game_key = pgm.game_key " +
       "LEFT JOIN commerce.reward_queue rq ON rq.entitlement_id = e.id AND rq.game_key = pgm.game_key " +
-      "WHERE pgm.product_id = e.product_id AND pgm.server_id IS NOT NULL), '[]'::json) AS \"deliveryTargets\", " +
+      "WHERE pgm.product_id = e.product_id AND pgm.server_id IS NOT NULL), '[]'::json) AS \"deliveryTargets\" " +
       "FROM commerce.entitlements e JOIN commerce.products p ON p.id = e.product_id " +
       "WHERE e.principal_id = $1 ORDER BY e.granted_at DESC",
       [principalId]
