@@ -178,7 +178,7 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
         return reply.code(500).send({ error: { code: "PAYMENT_TRANSACTION_NOT_FOUND", message: "The checkout session is not registered yet. Stripe may retry this event." } });
       }
 
-      if (supportedSuccess && session.payment_status === "paid") {
+      if (supportedSuccess && session.payment_status === "paid" && payment.status !== "succeeded") {
         const amountTotal = typeof session.amount_total === "number" ? session.amount_total : Number.NaN;
         const currency = typeof session.currency === "string" ? session.currency.toUpperCase() : "";
         if (!Number.isSafeInteger(amountTotal) || BigInt(amountTotal) !== BigInt(payment.amount_minor) || currency !== payment.currency.trim().toUpperCase()) {
@@ -187,7 +187,7 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
             [event.id, payment.id]
           );
           await client.query(
-            "UPDATE commerce.orders SET status = 'failed', updated_at = NOW() WHERE id = $1 AND status <> 'paid'",
+            "UPDATE commerce.orders SET status = 'failed', updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'awaiting_payment')",
             [payment.order_id]
           );
           await client.query(
@@ -200,7 +200,7 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
             [event.id, payment.id]
           );
           await client.query(
-            "UPDATE commerce.orders SET status = 'paid', updated_at = NOW() WHERE id = $1 AND status <> 'paid'",
+            "UPDATE commerce.orders SET status = 'paid', updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'awaiting_payment')",
             [payment.order_id]
           );
           await client.query(
