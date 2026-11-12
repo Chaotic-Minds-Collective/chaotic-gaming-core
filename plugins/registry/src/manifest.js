@@ -1,5 +1,5 @@
 const ID_PATTERN = /^[a-z0-9]+(?:[.-][a-z0-9]+){2,}$/;
-const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const GAMES = new Set(["platform", "atlas", "7dtd", "ark"]);
 const REQUIRED = ["id", "name", "version", "game", "apiVersion", "dependencies", "capabilities", "permissions", "compatibility"];
 

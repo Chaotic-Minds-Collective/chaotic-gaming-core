@@ -25,11 +25,20 @@ test("validates and defensively copies a plugin manifest", () => {
   assert.equal(input.capabilities.length, 1);
 });
 
+test("accepts valid SemVer prerelease and build identifiers", () => {
+  for (const version of ["1.0.0-0", "1.0.0-alpha.1", "1.0.0-alpha.1+build.01", "1.0.0+build.01"]) {
+    assert.equal(validatePluginManifest(manifest({ version })).version, version);
+  }
+});
+
 test("rejects missing fields, invalid IDs, versions and duplicate capabilities", () => {
   assert.throws(() => validatePluginManifest({}), PluginManifestError);
   assert.throws(() => validatePluginManifest(manifest({ id: "bad" })), /reverse-domain/);
   assert.throws(() => validatePluginManifest(manifest({ version: "1.0" })), /semantic versioning/);
   assert.throws(() => validatePluginManifest(manifest({ capabilities: ["x", "x"] })), /duplicates/);
+  for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0+build."]) {
+    assert.throws(() => validatePluginManifest(manifest({ version })), /semantic versioning/);
+  }
 });
 
 test("registers plugins and validates lifecycle transitions", () => {
