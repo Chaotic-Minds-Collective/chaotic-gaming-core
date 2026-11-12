@@ -19,16 +19,36 @@ const scopeType = option("--scope-type");
 const scopeId = option("--scope-id") ?? null;
 const validScopes = ["platform", "game", "cluster", "server", "guild"];
 
-if (roleKey && !scopeType) throw new Error("--scope-type is required when --role is supplied.");
-if (scopeType && !validScopes.includes(scopeType)) throw new Error("--scope-type must be platform, game, cluster, server, or guild.");
+if (Boolean(roleKey) !== Boolean(scopeType)) {
+  throw new Error("--role and --scope-type must be supplied together.");
+}
+if (scopeType && !validScopes.includes(scopeType)) {
+  throw new Error("--scope-type must be platform, game, cluster, server, or guild.");
+}
+if (scopeId && !scopeType) throw new Error("--scope-id requires --scope-type.");
 if (scopeType === "platform" && scopeId) throw new Error("Platform scope must not include --scope-id.");
-if (scopeType && scopeType !== "platform" && !scopeId) throw new Error("--scope-id is required for non-platform scopes.");
+if (scopeType && scopeType !== "platform" && !scopeId) {
+  throw new Error("--scope-id is required for non-platform scopes.");
+}
 if (scopeId && scopeId.length > 128) throw new Error("--scope-id must be at most 128 characters.");
 
 const token = `cg_srv_${randomBytes(36).toString("base64url")}`;
 const client = await pool.connect();
 try {
   await client.query("BEGIN");
+  if (roleKey && scopeType && scopeId) {
+    if (scopeType === "game") {
+      const exists = await client.query("SELECT 1 FROM core.games WHERE game_key = $1", [scopeId]);
+      if (!exists.rowCount) throw new Error("Game scope not found.");
+    } else if (scopeType === "cluster") {
+      const exists = await client.query("SELECT 1 FROM core.clusters WHERE id = $1", [scopeId]);
+      if (!exists.rowCount) throw new Error("Cluster scope not found.");
+    } else if (scopeType === "server") {
+      const exists = await client.query("SELECT 1 FROM core.servers WHERE id = $1", [scopeId]);
+      if (!exists.rowCount) throw new Error("Server scope not found.");
+    }
+  }
+
   const principal = await client.query<{ id: string }>(
     "INSERT INTO core.principals (principal_type, status) VALUES ('service', 'active') RETURNING id"
   );
@@ -65,7 +85,7 @@ try {
   await client.query("COMMIT");
   console.info("Service account created. Copy this credential now; it cannot be retrieved later:");
   console.info(token);
-  console.info(roleKey ? `Granted role ${roleKey} at ${scopeType} scope ${scopeId ?? "(platform)"}.` : "No permissions were granted.");
+  console.info(roleKey ? `Granted role ${roleKey} at ${scopeType} scope ${scopeId ?? "(platform)"}. ` : "No permissions were granted.");
 } catch (error) {
   await client.query("ROLLBACK").catch(() => undefined);
   throw error;
