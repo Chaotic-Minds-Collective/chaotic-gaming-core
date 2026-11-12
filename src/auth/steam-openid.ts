@@ -1,4 +1,4 @@
-const STEAM_OPENID_ENDPOINT = "https://steamcommunity.com/openid/login";
+const STEAM_OPENID_ENDPOINTS = new Set(["https://steamcommunity.com/openid/login", "https://steamcommunity.com/openid/"]);
 const OPENID_NAMESPACE = "http://specs.openid.net/auth/2.0";
 const MAX_NONCE_AGE_MS = 10 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 60 * 1000;
@@ -36,7 +36,8 @@ export async function verifySteamOpenIdAssertion(
   if (assertion["openid.ns"] !== OPENID_NAMESPACE || assertion["openid.mode"] !== "id_res") {
     throw new SteamOpenIdError("INVALID_ASSERTION", "The Steam OpenID namespace or response mode is invalid.");
   }
-  if (assertion["openid.op_endpoint"] !== STEAM_OPENID_ENDPOINT) {
+  const endpoint = assertion["openid.op_endpoint"];
+  if (!STEAM_OPENID_ENDPOINTS.has(endpoint)) {
     throw new SteamOpenIdError("INVALID_ASSERTION", "The OpenID provider endpoint is invalid.");
   }
 
@@ -44,7 +45,7 @@ export async function verifySteamOpenIdAssertion(
   if (assertion["openid.identity"] !== claimedId) {
     throw new SteamOpenIdError("INVALID_ASSERTION", "Steam identity and claimed identity do not match.");
   }
-  const steamMatch = claimedId.match(/^https:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/);
+  const steamMatch = claimedId.match(/^https?:\/\/steamcommunity\.com\/openid\/id\/(\d{17})$/);
   if (!steamMatch) {
     throw new SteamOpenIdError("INVALID_STEAM_ID", "Steam returned an invalid SteamID64.");
   }
@@ -76,8 +77,9 @@ export async function verifySteamOpenIdAssertion(
   }
 
   const nonce = assertion["openid.response_nonce"];
-  const nonceTimestamp = Date.parse(nonce.slice(0, 20));
-  if (!Number.isFinite(nonceTimestamp)) {
+  const nonceTimestampMatch = nonce.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)/);
+  const nonceTimestamp = nonceTimestampMatch ? Date.parse(nonceTimestampMatch[1]) : Number.NaN;
+  if (nonce.length > 255 || !Number.isFinite(nonceTimestamp)) {
     throw new SteamOpenIdError("INVALID_NONCE", "The Steam response nonce timestamp is invalid.");
   }
   const nonceAge = Date.now() - nonceTimestamp;
@@ -93,7 +95,7 @@ export async function verifySteamOpenIdAssertion(
 
   let response: Response;
   try {
-    response = await fetchImpl(STEAM_OPENID_ENDPOINT, {
+    response = await fetchImpl(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "text/plain" },
       body: verification.toString(),
