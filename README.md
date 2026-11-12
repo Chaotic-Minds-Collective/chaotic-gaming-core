@@ -77,3 +77,13 @@ Stripe Checkout is disabled by default and accepts test-mode secret keys only. T
 - POST /webhooks/stripe verifies the raw-body signature, checks amount and currency, protects against duplicate events, and grants entitlements only after a verified paid event.
 
 The Core API holds the Stripe secret. The website receives only a validated checkout.stripe.com URL. Do not put Stripe credentials in the website environment, commit them, or configure live-mode keys. See docs/commerce/stripe-test-mode.md for setup and webhook details.
+
+## Commerce catalog administration
+
+Catalog management is restricted to the platform-scoped commerce.manage permission. The platform_admin role receives this permission from the base RBAC migration. After a player account has been registered, a database operator can grant the role explicitly with:
+
+```bash
+npm run admin:grant -- <PLAYER_PRINCIPAL_UUID>
+```
+
+The player principal UUID is displayed on the signed-in account page. See docs/commerce/catalog-management.md for the product, price and per-game delivery mapping API. Do not configure delivery mappings until the target game adapter supports the declared delivery type.
