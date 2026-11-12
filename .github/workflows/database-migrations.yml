@@ -34,15 +34,19 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chaotic_gaming_test
       NODE_ENV: test
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Install dependencies
         run: npm install
+      - name: Report dependency vulnerabilities
+        run: |
+          npm audit --json > npm-audit.json || true
+          node -e 'const fs=require("node:fs"); const report=JSON.parse(fs.readFileSync("npm-audit.json","utf8")); console.log(JSON.stringify(report.vulnerabilities ?? {}, null, 2));'
       - name: Apply every SQL migration to a fresh PostgreSQL database
         run: npm run db:migrate
       - name: Build TypeScript API
         run: npm run build
-      - name: Run plugin registry tests
+      - name: Run API integration and plugin registry tests
         run: npm test
