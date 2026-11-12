@@ -195,7 +195,7 @@ test("public server listing hides unlisted servers and reward workers use leased
       method: "POST",
       url: "/auth/linked-accounts/steam",
       headers: { authorization: "Bearer " + playerSession.token },
-      payload: steamAssertion,
+      payload: { state: steamState, assertion: steamAssertion },
     });
     assert.equal(steamReplayResponse.statusCode, 409);
     assert.equal(steamReplayResponse.json().error.code, "STEAM_STATE_INVALID");
