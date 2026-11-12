@@ -121,6 +121,21 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     return { data: result.rows[0] ?? null, requestId: request.id };
   });
 
+  app.get("/auth/linked-accounts", async (request, reply) => {
+    if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Linked accounts are temporarily unavailable." } });
+    const principalId = await requirePrincipal(request, reply);
+    if (!principalId) return;
+    const result = await pool.query(
+      `SELECT provider, external_id AS "externalId", external_username AS "externalUsername",
+              verified_at AS "verifiedAt", linked_at AS "linkedAt"
+         FROM core.linked_accounts
+        WHERE principal_id = $1 AND unlinked_at IS NULL
+        ORDER BY provider, linked_at`,
+      [principalId]
+    );
+    return { data: result.rows, requestId: request.id };
+  });
+
   app.post("/auth/logout", async (request, reply) => {
     if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Logout is temporarily unavailable." } });
     const authorization = request.headers.authorization;
