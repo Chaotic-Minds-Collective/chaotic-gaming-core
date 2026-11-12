@@ -56,15 +56,100 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
     if (!principalId) return;
 
     const result = await pool.query(
-      `SELECT e.id, e.status, e.granted_at AS "grantedAt", e.expires_at AS "expiresAt",
-              p.sku, p.name, p.product_type AS "productType"
-         FROM commerce.entitlements e
-         JOIN commerce.products p ON p.id = e.product_id
-        WHERE e.principal_id = $1
-        ORDER BY e.granted_at DESC`,
+      "SELECT e.id, e.status, e.granted_at AS \"grantedAt\", e.expires_at AS \"expiresAt\", " +
+      "e.quantity, p.sku, p.name, p.product_type AS \"productType\", " +
+      "COALESCE((SELECT json_agg(json_build_object('gameKey', pgm.game_key, 'serverId', pgm.server_id, " +
+      "'serverName', s.name, 'rewardStatus', rq.status) ORDER BY pgm.game_key) " +
+      "FROM commerce.product_game_mappings pgm " +
+      "JOIN core.servers s ON s.id = pgm.server_id AND s.game_key = pgm.game_key " +
+      "LEFT JOIN commerce.reward_queue rq ON rq.entitlement_id = e.id AND rq.game_key = pgm.game_key " +
+      "WHERE pgm.product_id = e.product_id AND pgm.server_id IS NOT NULL), '[]'::json) AS \"deliveryTargets\", " +
+      "FROM commerce.entitlements e JOIN commerce.products p ON p.id = e.product_id " +
+      "WHERE e.principal_id = $1 ORDER BY e.granted_at DESC",
       [principalId]
     );
     return { data: result.rows, requestId: request.id };
+  });
+
+  app.post("/account/entitlements/:entitlementId/claim", async (request, reply) => {
+    if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Reward claims are temporarily unavailable." } });
+    const principalId = await requirePrincipal(request, reply);
+    if (!principalId) return;
+    const params = z.object({ entitlementId: z.string().uuid() }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ error: { code: "INVALID_ENTITLEMENT_ID", message: "A valid entitlement ID is required." } });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const entitlementResult = await client.query<{
+        id: string; product_id: string; status: string; quantity: number; sku: string; name: string;
+      }>(
+        "SELECT e.id, e.product_id, e.status, e.quantity, p.sku, p.name FROM commerce.entitlements e JOIN commerce.products p ON p.id = e.product_id WHERE e.id = $1 AND e.principal_id = $2 FOR UPDATE OF e",
+        [params.data.entitlementId, principalId]
+      );
+      const entitlement = entitlementResult.rows[0];
+      if (!entitlement) {
+        await client.query("ROLLBACK");
+        return reply.code(404).send({ error: { code: "ENTITLEMENT_NOT_FOUND", message: "The entitlement was not found." } });
+      }
+      if (entitlement.status !== "active") {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: { code: "ENTITLEMENT_NOT_ACTIVE", message: "Only active entitlements can be delivered." } });
+      }
+
+      const steamResult = await client.query<{ external_id: string }>(
+        "SELECT external_id FROM core.linked_accounts WHERE principal_id = $1 AND provider = 'steam' AND verified_at IS NOT NULL AND unlinked_at IS NULL ORDER BY linked_at DESC LIMIT 1",
+        [principalId]
+      );
+      const steamId = steamResult.rows[0]?.external_id;
+      if (!steamId) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: { code: "VERIFIED_STEAM_ACCOUNT_REQUIRED", message: "Link and verify a Steam account before claiming in-game items." } });
+      }
+
+      const mappings = await client.query<{
+        game_key: string; server_id: string; delivery_type: string; delivery_payload: Record<string, unknown>;
+      }>(
+        "SELECT pgm.game_key, pgm.server_id, pgm.delivery_type, pgm.delivery_payload FROM commerce.product_game_mappings pgm JOIN core.servers s ON s.id = pgm.server_id AND s.game_key = pgm.game_key WHERE pgm.product_id = $1 AND pgm.server_id IS NOT NULL ORDER BY pgm.game_key",
+        [entitlement.product_id]
+      );
+      if (!mappings.rows.length) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: { code: "GAME_DELIVERY_NOT_CONFIGURED", message: "No game server delivery target is configured for this item yet." } });
+      }
+
+      for (const mapping of mappings.rows) {
+        const idempotencyKey = "entitlement:" + entitlement.id + ":" + mapping.game_key;
+        const payload = {
+          deliveryType: mapping.delivery_type,
+          productSku: entitlement.sku,
+          productName: entitlement.name,
+          quantity: entitlement.quantity,
+          mapping: mapping.delivery_payload
+        };
+        await client.query(
+          "INSERT INTO commerce.reward_queue (entitlement_id, game_key, server_id, target_external_id, delivery_payload, idempotency_key) VALUES ($1, $2, $3, $4, $5::jsonb, $6) ON CONFLICT (idempotency_key) DO NOTHING",
+          [entitlement.id, mapping.game_key, mapping.server_id, steamId, JSON.stringify(payload), idempotencyKey]
+        );
+      }
+
+      const deliveries = await client.query(
+        "SELECT id, game_key AS \"gameKey\", server_id AS \"serverId\", status, created_at AS \"createdAt\" FROM commerce.reward_queue WHERE entitlement_id = $1 ORDER BY created_at DESC",
+        [entitlement.id]
+      );
+      await client.query(
+        "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'reward.claim.requested', 'entitlement', $2, 'success', $3::jsonb)",
+        [principalId, entitlement.id, JSON.stringify({ deliveryCount: deliveries.rows.length })]
+      );
+      await client.query("COMMIT");
+      return reply.code(202).send({ data: { entitlementId: entitlement.id, deliveries: deliveries.rows }, requestId: request.id });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      request.log.error({ err: error }, "Entitlement reward claim failed");
+      return reply.code(500).send({ error: { code: "ENTITLEMENT_CLAIM_FAILED", message: "The in-game delivery request could not be queued." } });
+    } finally {
+      client.release();
+    }
   });
 
   app.get("/account/orders", async (request, reply) => {

@@ -214,6 +214,19 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
             [payment.order_id]
           );
           await client.query(
+            "INSERT INTO commerce.reward_queue (entitlement_id, game_key, server_id, target_external_id, delivery_payload, idempotency_key) " +
+            "SELECT e.id, pgm.game_key, pgm.server_id, la.external_id, " +
+            "jsonb_build_object('deliveryType', pgm.delivery_type, 'productSku', oi.sku_snapshot, 'productName', oi.name_snapshot, 'quantity', oi.quantity, 'mapping', pgm.delivery_payload), " +
+            "'order_item:' || oi.id::text || ':' || pgm.game_key " +
+            "FROM commerce.order_items oi " +
+            "JOIN commerce.entitlements e ON e.order_item_id = oi.id " +
+            "JOIN commerce.product_game_mappings pgm ON pgm.product_id = oi.product_id AND pgm.server_id IS NOT NULL " +
+            "JOIN core.servers s ON s.id = pgm.server_id AND s.game_key = pgm.game_key " +
+            "JOIN core.linked_accounts la ON la.principal_id = e.principal_id AND la.provider = 'steam' AND la.verified_at IS NOT NULL AND la.unlinked_at IS NULL " +
+            "WHERE oi.order_id = $1 ON CONFLICT (idempotency_key) DO NOTHING",
+            [payment.order_id]
+          );
+          await client.query(
             "INSERT INTO operations.event_outbox (event_type, aggregate_type, aggregate_id, payload) VALUES ('commerce.order.paid', 'order', $1, $2::jsonb)",
             [payment.order_id, JSON.stringify({ orderId: payment.order_id, principalId: payment.principal_id, paymentTransactionId: payment.id, provider: "stripe" })]
           );
