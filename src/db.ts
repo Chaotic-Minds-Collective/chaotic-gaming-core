@@ -1,24 +1,6 @@
 import pg from "pg";
 import { config } from "./config.js";
-
 const { Pool } = pg;
-
-export const pool = config.DATABASE_URL
-  ? new Pool({
-      connectionString: config.DATABASE_URL,
-      ...(config.DATABASE_SSL ? { ssl: { rejectUnauthorized: true } } : {}),
-      max: 10,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000
-    })
-  : null;
-
-export async function checkDatabase(): Promise<boolean> {
-  if (!pool) return false;
-  try {
-    await pool.query("SELECT 1");
-    return true;
-  } catch {
-    return false;
-  }
-}
+export const pool = new Pool({connectionString:config.DATABASE_URL,ssl:config.DATABASE_SSL==="require"?{rejectUnauthorized:true}:undefined,max:10,idleTimeoutMillis:30000,connectionTimeoutMillis:5000});
+pool.on("error",(error)=>console.error("Unexpected PostgreSQL pool error",error));
+export async function checkDatabase():Promise<void>{await pool.query("SELECT 1");}
