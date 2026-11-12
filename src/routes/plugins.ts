@@ -219,7 +219,7 @@ export async function registerPluginRoutes(app: FastifyInstance): Promise<void> 
             WHERE v.plugin_id = $2 AND v.version = (SELECT latest_version FROM core.plugins WHERE plugin_id = $2)`,
           [params.data.serverId, params.data.pluginId]
         );
-        const unavailable = dependencies.rows.filter((dependency) => !["ENABLED", "HEALTHY"].includes(dependency.lifecycle_status ?? ""));
+        const unavailable = dependencies.rows.filter((dependency) => dependency.lifecycle_status !== "HEALTHY");
         if (unavailable.length > 0) {
           await client.query("ROLLBACK");
           return reply.code(409).send({
