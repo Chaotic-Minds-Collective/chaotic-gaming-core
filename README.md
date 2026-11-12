@@ -1,23 +1,28 @@
 # Chaotic Gaming Core
 
-The shared platform backend for Chaotic Gaming. This repository is the source of truth for player identity, authentication, scoped authorization, platform APIs, commerce entitlements, integration events, and operational records.
+Shared Chaotic Gaming platform core: player identity, authentication, scoped authorization, REST APIs, PostgreSQL migrations, commerce, events and integrations.
 
-## Architecture
+## Platform architecture
 
 - Node.js 22+ and TypeScript
 - Fastify REST API
 - PostgreSQL with versioned SQL migrations
-- Modular monolith; modules remain separable by domain
-- Database-backed transactional outbox for reliable integration events
-- Game-specific data belongs in dedicated PostgreSQL schemas
-- Discord bot, website, and game adapters authenticate as separate clients
+- Modular monolith with separate domain and game schemas
+- Transactional event outbox
+- Independent website, Discord bot and game adapters using authenticated APIs
+
+## Plugin ecosystem
+
+The Core also owns the shared plugin lifecycle and registry foundation. Game-specific plugins remain independently versioned and communicate with Core through scoped service identities; they never receive database credentials.
+
+See the [central plugin catalogue and ecosystem documentation](https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs/tree/main/plugins).
 
 ## Local development
 
 1. Install Node.js 22 or newer.
 2. Copy `.env.example` to `.env` and set `DATABASE_URL`.
 3. Run `npm install`.
-4. Run `npm run db:migrate` after configuring the database.
+4. Run `npm run db:migrate` against a non-production database.
 5. Run `npm run dev`.
 
 The API listens on `PORT` (default 3001). `GET /health/live` is process liveness; `GET /health/ready` checks PostgreSQL connectivity.
@@ -38,4 +43,4 @@ Migrations are in `migrations/` and are applied in filename order. The migration
 
 ## Status
 
-Foundation scaffold. Authentication flows, authorization middleware, commerce, game adapters, and production deployment are subsequent milestones.
+Foundation implementation is committed, but authentication hardening, external identity linking, event consumers, payment integration, game fulfillment workers and production operations remain incomplete. No database migrations have been applied and no production service has been deployed.
