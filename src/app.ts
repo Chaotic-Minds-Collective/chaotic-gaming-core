@@ -6,6 +6,7 @@ import { registerCommerceRoutes } from "./routes/commerce.js";
 import { registerGameEventRoutes } from "./routes/game-events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIntegrationRoutes } from "./routes/integrations.js";
+import { registerPluginRoutes } from "./routes/plugins.js";
 import { registerServerRoutes } from "./routes/servers.js";
 
 export function buildApp() {
@@ -27,7 +28,7 @@ export function buildApp() {
 
   app.get("/", async () => ({
     name: "Chaotic Gaming Core API",
-    version: "0.7.0",
+    version: "0.8.0",
     docs: "https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs"
   }));
 
@@ -37,5 +38,6 @@ export function buildApp() {
   void registerCommerceRoutes(app);
   void registerServerRoutes(app);
   void registerGameEventRoutes(app);
+  void registerPluginRoutes(app);
   return app;
 }
