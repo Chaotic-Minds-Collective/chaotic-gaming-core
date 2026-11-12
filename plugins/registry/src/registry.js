@@ -10,6 +10,10 @@ const TRANSITIONS = {
   REMOVED: new Set()
 };
 
+export function canTransitionPluginState(currentStatus, nextStatus) {
+  return Boolean(TRANSITIONS[currentStatus]?.has(nextStatus));
+}
+
 export class PluginRegistryError extends Error {
   constructor(message) {
     super(message);
@@ -61,10 +65,10 @@ export class PluginRegistry {
   transition(pluginId, nextStatus, { healthMessage = null } = {}) {
     const record = this.records.get(pluginId);
     if (!record) throw new PluginRegistryError(`Unknown plugin: ${pluginId}`);
-    if (!Object.hasOwn(TRANSITIONS, nextStatus)) {
+    if (!TRANSITIONS[nextStatus]) {
       throw new PluginRegistryError(`Unknown lifecycle status: ${nextStatus}`);
     }
-    if (!TRANSITIONS[record.status].has(nextStatus)) {
+    if (!canTransitionPluginState(record.status, nextStatus)) {
       throw new PluginRegistryError(`Invalid lifecycle transition: ${record.status} -> ${nextStatus}`);
     }
 
