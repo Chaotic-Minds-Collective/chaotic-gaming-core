@@ -8,7 +8,6 @@ import { registerGameEventRoutes } from "./routes/game-events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIntegrationRoutes } from "./routes/integrations.js";
 import { registerPlayerResolutionRoutes } from "./routes/player-resolution.js";
-import { registerPaymentRoutes } from "./routes/payments.js";
 import { registerPluginRoutes } from "./routes/plugins.js";
 import { registerRewardRoutes } from "./routes/rewards.js";
 import { registerServerRoutes } from "./routes/servers.js";
@@ -59,7 +58,6 @@ export function buildApp() {
   void registerAuthRoutes(app);
   void registerIntegrationRoutes(app);
   void registerCommerceRoutes(app);
-  void registerPaymentRoutes(app);
   void registerServerRoutes(app);
   void registerGameEventRoutes(app);
   void registerPluginRoutes(app);
@@ -69,4 +67,3 @@ export function buildApp() {
   void registerDiscordLinkRoutes(app);
   return app;
 }
-
