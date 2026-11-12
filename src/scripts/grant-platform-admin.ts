@@ -1,8 +1,13 @@
 import { pool } from "../db.js";
 
 const principalId = process.argv[2];
-if (!principalId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(principalId)) {
-  throw new Error("Usage: npm run admin:grant -- <PLAYER_PRINCIPAL_UUID>");
+const actorPrincipalId = process.env.PLATFORM_ADMIN_ACTOR_PRINCIPAL_ID;
+const principalIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+if (!principalId || !principalIdPattern.test(principalId)) {
+  throw new Error("Usage: PLATFORM_ADMIN_ACTOR_PRINCIPAL_ID=<OPERATOR_OR_SERVICE_PRINCIPAL_UUID> npm run admin:grant -- <PLAYER_PRINCIPAL_UUID>");
+}
+if (!actorPrincipalId || !principalIdPattern.test(actorPrincipalId)) {
+  throw new Error("PLATFORM_ADMIN_ACTOR_PRINCIPAL_ID must identify the trusted operator or service principal performing the grant.");
 }
 if (!pool) throw new Error("DATABASE_URL is required.");
 
@@ -14,6 +19,8 @@ try {
     [principalId]
   );
   if (!principal.rowCount) throw new Error("Player principal not found.");
+  const actor = await client.query("SELECT id FROM core.principals WHERE id = $1", [actorPrincipalId]);
+  if (!actor.rowCount) throw new Error("The configured platform-admin actor principal was not found.");
 
   const role = await client.query<{ id: string }>("SELECT id FROM core.roles WHERE role_key = 'platform_admin'");
   const roleId = role.rows[0]?.id;
@@ -29,8 +36,8 @@ try {
       [principalId, roleId]
     );
     await client.query(
-      "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'platform.admin.granted', 'principal', $1, 'success', '{}'::jsonb)",
-      [principalId]
+      "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'platform.admin.granted', 'principal', $2, 'success', '{}'::jsonb)",
+      [actorPrincipalId, principalId]
     );
   }
   await client.query("COMMIT");

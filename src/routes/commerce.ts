@@ -131,16 +131,30 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
     if (!params.success || !parsed.success) return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "The product update is invalid." } });
 
     const hasDescription = Object.prototype.hasOwnProperty.call(parsed.data, "description");
-    const result = await pool!.query(
-      "UPDATE commerce.products SET name = COALESCE($2, name), description = CASE WHEN $3 THEN $4 ELSE description END, status = COALESCE($5, status), updated_at = NOW() WHERE id = $1 RETURNING id, sku, name, status",
-      [params.data.productId, parsed.data.name ?? null, hasDescription, parsed.data.description ?? null, parsed.data.status ?? null]
-    );
-    if (!result.rows[0]) return reply.code(404).send({ error: { code: "PRODUCT_NOT_FOUND", message: "The product was not found." } });
-    await pool!.query(
-      "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.updated', 'product', $2, 'success', $3::jsonb)",
-      [actorId, params.data.productId, JSON.stringify({ changedFields: Object.keys(parsed.data) })]
-    );
-    return { data: result.rows[0], requestId: request.id };
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        "UPDATE commerce.products SET name = COALESCE($2, name), description = CASE WHEN $3 THEN $4 ELSE description END, status = COALESCE($5, status), updated_at = NOW() WHERE id = $1 RETURNING id, sku, name, status",
+        [params.data.productId, parsed.data.name ?? null, hasDescription, parsed.data.description ?? null, parsed.data.status ?? null]
+      );
+      if (!result.rows[0]) {
+        await client.query("ROLLBACK");
+        return reply.code(404).send({ error: { code: "PRODUCT_NOT_FOUND", message: "The product was not found." } });
+      }
+      await client.query(
+        "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.updated', 'product', $2, 'success', $3::jsonb)",
+        [actorId, params.data.productId, JSON.stringify({ changedFields: Object.keys(parsed.data) })]
+      );
+      await client.query("COMMIT");
+      return { data: result.rows[0], requestId: request.id };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      request.log.error({ err: error }, "Commerce product update failed");
+      return reply.code(500).send({ error: { code: "PRODUCT_UPDATE_FAILED", message: "The product could not be updated." } });
+    } finally {
+      client.release();
+    }
   });
 
   app.post("/admin/commerce/products/:productId/prices", async (request, reply) => {
@@ -158,13 +172,16 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
         await client.query("ROLLBACK");
         return reply.code(404).send({ error: { code: "PRODUCT_NOT_FOUND", message: "The product was not found." } });
       }
+      const effectiveAtResult = await client.query<{ effective_at: string }>("SELECT clock_timestamp()::text AS effective_at");
+      const effectiveAt = effectiveAtResult.rows[0]?.effective_at;
+      if (!effectiveAt) throw new Error("Could not determine the effective product price timestamp.");
       await client.query(
-        "UPDATE commerce.product_prices SET active_until = NOW() WHERE product_id = $1 AND currency = $2 AND active_from < NOW() AND (active_until IS NULL OR active_until > NOW())",
-        [params.data.productId, parsed.data.currency]
+        "UPDATE commerce.product_prices SET active_until = $3::timestamptz WHERE product_id = $1 AND currency = $2 AND active_from < $3::timestamptz AND (active_until IS NULL OR active_until > $3::timestamptz)",
+        [params.data.productId, parsed.data.currency, effectiveAt]
       );
       const price = await client.query(
-        "INSERT INTO commerce.product_prices (product_id, currency, amount_minor) VALUES ($1, $2, $3) RETURNING id, currency, amount_minor::text AS \"amountMinor\", active_from AS \"activeFrom\"",
-        [params.data.productId, parsed.data.currency, parsed.data.amountMinor]
+        "INSERT INTO commerce.product_prices (product_id, currency, amount_minor, active_from) VALUES ($1, $2, $3, $4::timestamptz) RETURNING id, currency, amount_minor::text AS \"amountMinor\", active_from AS \"activeFrom\"",
+        [params.data.productId, parsed.data.currency, parsed.data.amountMinor, effectiveAt]
       );
       await client.query(
         "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.price.created', 'product', $2, 'success', $3::jsonb)",
@@ -196,15 +213,26 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
     const product = await pool!.query("SELECT id FROM commerce.products WHERE id = $1", [params.data.productId]);
     if (!product.rowCount) return reply.code(404).send({ error: { code: "PRODUCT_NOT_FOUND", message: "The product was not found." } });
 
-    const result = await pool!.query(
-      "INSERT INTO commerce.product_game_mappings (product_id, game_key, server_id, delivery_type, delivery_payload) VALUES ($1, $2, $3, $4, $5::jsonb) ON CONFLICT (product_id, game_key) DO UPDATE SET server_id = EXCLUDED.server_id, delivery_type = EXCLUDED.delivery_type, delivery_payload = EXCLUDED.delivery_payload RETURNING id, game_key AS \"gameKey\", server_id AS \"serverId\", delivery_type AS \"deliveryType\", delivery_payload AS \"deliveryPayload\"",
-      [params.data.productId, params.data.gameKey, parsed.data.serverId, parsed.data.deliveryType, JSON.stringify(parsed.data.deliveryPayload)]
-    );
-    await pool!.query(
-      "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.mapping.upserted', 'product', $2, 'success', $3::jsonb)",
-      [actorId, params.data.productId, JSON.stringify({ gameKey: params.data.gameKey, serverId: parsed.data.serverId, deliveryType: parsed.data.deliveryType })]
-    );
-    return { data: result.rows[0], requestId: request.id };
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        "INSERT INTO commerce.product_game_mappings (product_id, game_key, server_id, delivery_type, delivery_payload) VALUES ($1, $2, $3, $4, $5::jsonb) ON CONFLICT (product_id, game_key) DO UPDATE SET server_id = EXCLUDED.server_id, delivery_type = EXCLUDED.delivery_type, delivery_payload = EXCLUDED.delivery_payload RETURNING id, game_key AS \"gameKey\", server_id AS \"serverId\", delivery_type AS \"deliveryType\", delivery_payload AS \"deliveryPayload\"",
+        [params.data.productId, params.data.gameKey, parsed.data.serverId, parsed.data.deliveryType, JSON.stringify(parsed.data.deliveryPayload)]
+      );
+      await client.query(
+        "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.mapping.upserted', 'product', $2, 'success', $3::jsonb)",
+        [actorId, params.data.productId, JSON.stringify({ gameKey: params.data.gameKey, serverId: parsed.data.serverId, deliveryType: parsed.data.deliveryType })]
+      );
+      await client.query("COMMIT");
+      return { data: result.rows[0], requestId: request.id };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      request.log.error({ err: error }, "Commerce product mapping update failed");
+      return reply.code(500).send({ error: { code: "PRODUCT_MAPPING_UPDATE_FAILED", message: "The product delivery mapping could not be updated." } });
+    } finally {
+      client.release();
+    }
   });
 
   app.get("/catalog/products", async (request, reply) => {
@@ -269,9 +297,9 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
     try {
       await client.query("BEGIN");
       const entitlementResult = await client.query<{
-        id: string; product_id: string; order_item_id: string | null; status: string; quantity: number; sku: string; name: string;
+        id: string; product_id: string; order_item_id: string | null; status: string; is_expired: boolean; quantity: number; sku: string; name: string;
       }>(
-        "SELECT e.id, e.product_id, e.order_item_id, e.status, e.quantity, p.sku, p.name FROM commerce.entitlements e JOIN commerce.products p ON p.id = e.product_id WHERE e.id = $1 AND e.principal_id = $2 FOR UPDATE OF e",
+        "SELECT e.id, e.product_id, e.order_item_id, e.status, (e.expires_at IS NOT NULL AND e.expires_at <= clock_timestamp()) AS is_expired, e.quantity, p.sku, p.name FROM commerce.entitlements e JOIN commerce.products p ON p.id = e.product_id WHERE e.id = $1 AND e.principal_id = $2 FOR UPDATE OF e",
         [params.data.entitlementId, principalId]
       );
       const entitlement = entitlementResult.rows[0];
@@ -279,7 +307,7 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
         await client.query("ROLLBACK");
         return reply.code(404).send({ error: { code: "ENTITLEMENT_NOT_FOUND", message: "The entitlement was not found." } });
       }
-      if (entitlement.status !== "active") {
+      if (entitlement.status !== "active" || entitlement.is_expired) {
         await client.query("ROLLBACK");
         return reply.code(409).send({ error: { code: "ENTITLEMENT_NOT_ACTIVE", message: "Only active entitlements can be delivered." } });
       }
@@ -315,13 +343,13 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
           mapping: mapping.delivery_payload
         };
         await client.query(
-          "INSERT INTO commerce.reward_queue (entitlement_id, game_key, server_id, target_external_id, delivery_payload, idempotency_key) VALUES ($1, $2, $3, $4, $5::jsonb, $6) ON CONFLICT (idempotency_key) DO NOTHING",
+          "INSERT INTO commerce.reward_queue (entitlement_id, game_key, server_id, target_external_id, delivery_payload, idempotency_key) VALUES ($1, $2, $3, $4, $5::jsonb, $6) ON CONFLICT (idempotency_key) DO UPDATE SET server_id = EXCLUDED.server_id, target_external_id = EXCLUDED.target_external_id, delivery_payload = EXCLUDED.delivery_payload WHERE commerce.reward_queue.status IN ('pending', 'failed')",
           [entitlement.id, mapping.game_key, mapping.server_id, steamId, JSON.stringify(payload), idempotencyKey]
         );
       }
 
       const deliveries = await client.query(
-        "SELECT id, game_key AS \"gameKey\", server_id AS \"serverId\", status, created_at AS \"createdAt\" FROM commerce.reward_queue WHERE entitlement_id = $1 ORDER BY created_at DESC",
+        "SELECT id, game_key AS \"gameKey\", server_id AS \"serverId\", target_external_id AS \"targetExternalId\", delivery_payload AS \"deliveryPayload\", status, created_at AS \"createdAt\" FROM commerce.reward_queue WHERE entitlement_id = $1 ORDER BY created_at DESC",
         [entitlement.id]
       );
       await client.query(

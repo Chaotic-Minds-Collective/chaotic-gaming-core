@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -79,6 +80,14 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
         };
       }
 
+      const expiredAttempt = await client.query<{ provider_transaction_id: string }>(
+        "SELECT provider_transaction_id FROM commerce.payment_transactions WHERE order_id = $1 AND provider = 'stripe' AND status IN ('created', 'pending', 'failed') AND checkout_url IS NOT NULL AND (status = 'failed' OR (expires_at IS NOT NULL AND expires_at <= NOW())) ORDER BY created_at DESC LIMIT 1",
+        [order.id]
+      );
+      const providerIdempotencyKey = expiredAttempt.rows[0]
+        ? "checkout-replacement:" + createHash("sha256").update(idempotencyKey).update(":" + expiredAttempt.rows[0].provider_transaction_id).digest("hex")
+        : idempotencyKey;
+
       const itemResult = await client.query<{
         name_snapshot: string; quantity: number; unit_amount_minor: string;
       }>(
@@ -94,7 +103,7 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
         orderId: order.id,
         principalId,
         currency: order.currency.trim(),
-        idempotencyKey,
+        idempotencyKey: providerIdempotencyKey,
         lines: itemResult.rows.map((item) => ({
           name: item.name_snapshot,
           quantity: item.quantity,
@@ -127,8 +136,18 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
   app.post("/webhooks/stripe", {
     preParsing: async (request, _reply, payload) => {
       const chunks: Buffer[] = [];
+      const bodyLimit = request.routeOptions.bodyLimit ?? request.server.initialConfig.bodyLimit ?? 1_048_576;
+      let receivedBytes = 0;
       for await (const chunk of payload) {
-        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        receivedBytes += buffer.length;
+        if (receivedBytes > bodyLimit) {
+          const error = new Error("Request body is too large") as Error & { statusCode: number; code: string };
+          error.statusCode = 413;
+          error.code = "FST_ERR_CTP_BODY_TOO_LARGE";
+          throw error;
+        }
+        chunks.push(buffer);
       }
       const rawBody = Buffer.concat(chunks);
       (request as RawBodyRequest).rawBody = rawBody;
@@ -173,9 +192,9 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       }
 
       const transactionResult = await client.query<{
-        id: string; order_id: string; status: string; amount_minor: string; currency: string; principal_id: string;
+        id: string; order_id: string; status: string; amount_minor: string; currency: string; principal_id: string; order_status: string;
       }>(
-        "SELECT pt.id, pt.order_id, pt.status, pt.amount_minor::text AS amount_minor, pt.currency, o.principal_id FROM commerce.payment_transactions pt JOIN commerce.orders o ON o.id = pt.order_id WHERE pt.provider = 'stripe' AND pt.provider_transaction_id = $1 FOR UPDATE OF pt, o",
+        "SELECT pt.id, pt.order_id, pt.status, pt.amount_minor::text AS amount_minor, pt.currency, o.principal_id, o.status AS order_status FROM commerce.payment_transactions pt JOIN commerce.orders o ON o.id = pt.order_id WHERE pt.provider = 'stripe' AND pt.provider_transaction_id = $1 FOR UPDATE OF pt, o",
         [sessionId]
       );
       const payment = transactionResult.rows[0];
@@ -205,35 +224,42 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
             "UPDATE commerce.payment_transactions SET status = 'succeeded', provider_event_id = $1, verified_at = NOW() WHERE id = $2",
             [event.id, payment.id]
           );
-          await client.query(
-            "UPDATE commerce.orders SET status = 'paid', updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'awaiting_payment')",
+          const orderTransition = await client.query(
+            "UPDATE commerce.orders SET status = 'paid', updated_at = NOW() WHERE id = $1 AND status IN ('pending', 'awaiting_payment') RETURNING id",
             [payment.order_id]
           );
-          await client.query(
-            "INSERT INTO commerce.entitlements (principal_id, product_id, order_item_id, quantity, status) SELECT o.principal_id, oi.product_id, oi.id, oi.quantity, 'active' FROM commerce.orders o JOIN commerce.order_items oi ON oi.order_id = o.id WHERE o.id = $1 ON CONFLICT (order_item_id) WHERE order_item_id IS NOT NULL DO NOTHING",
-            [payment.order_id]
-          );
-          await client.query(
-            "INSERT INTO commerce.reward_queue (entitlement_id, game_key, server_id, target_external_id, delivery_payload, idempotency_key) " +
-            "SELECT e.id, pgm.game_key, pgm.server_id, la.external_id, " +
-            "jsonb_build_object('deliveryType', pgm.delivery_type, 'productSku', oi.sku_snapshot, 'productName', oi.name_snapshot, 'quantity', oi.quantity, 'mapping', pgm.delivery_payload), " +
-            "'order_item:' || oi.id::text || ':' || pgm.game_key " +
-            "FROM commerce.order_items oi " +
-            "JOIN commerce.entitlements e ON e.order_item_id = oi.id " +
-            "JOIN commerce.product_game_mappings pgm ON pgm.product_id = oi.product_id AND pgm.server_id IS NOT NULL " +
-            "JOIN core.servers s ON s.id = pgm.server_id AND s.game_key = pgm.game_key " +
-            "JOIN core.linked_accounts la ON la.principal_id = e.principal_id AND la.provider = 'steam' AND la.verified_at IS NOT NULL AND la.unlinked_at IS NULL " +
-            "WHERE oi.order_id = $1 ON CONFLICT (idempotency_key) DO NOTHING",
-            [payment.order_id]
-          );
-          await client.query(
-            "INSERT INTO operations.event_outbox (event_type, aggregate_type, aggregate_id, payload) VALUES ('commerce.order.paid', 'order', $1, $2::jsonb)",
-            [payment.order_id, JSON.stringify({ orderId: payment.order_id, principalId: payment.principal_id, paymentTransactionId: payment.id, provider: "stripe" })]
-          );
-          await client.query(
-            "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES (NULL, 'payment.stripe.succeeded', 'order', $1, 'success', $2::jsonb)",
-            [payment.order_id, JSON.stringify({ eventId: event.id, paymentTransactionId: payment.id })]
-          );
+          if (orderTransition.rowCount) {
+            await client.query(
+              "INSERT INTO commerce.entitlements (principal_id, product_id, order_item_id, quantity, status) SELECT o.principal_id, oi.product_id, oi.id, oi.quantity, 'active' FROM commerce.orders o JOIN commerce.order_items oi ON oi.order_id = o.id WHERE o.id = $1 ON CONFLICT (order_item_id) WHERE order_item_id IS NOT NULL DO NOTHING",
+              [payment.order_id]
+            );
+            await client.query(
+              "INSERT INTO commerce.reward_queue (entitlement_id, game_key, server_id, target_external_id, delivery_payload, idempotency_key) " +
+              "SELECT e.id, pgm.game_key, pgm.server_id, la.external_id, " +
+              "jsonb_build_object('deliveryType', pgm.delivery_type, 'productSku', oi.sku_snapshot, 'productName', oi.name_snapshot, 'quantity', oi.quantity, 'mapping', pgm.delivery_payload), " +
+              "'order_item:' || oi.id::text || ':' || pgm.game_key " +
+              "FROM commerce.order_items oi " +
+              "JOIN commerce.entitlements e ON e.order_item_id = oi.id " +
+              "JOIN commerce.product_game_mappings pgm ON pgm.product_id = oi.product_id AND pgm.server_id IS NOT NULL " +
+              "JOIN core.servers s ON s.id = pgm.server_id AND s.game_key = pgm.game_key " +
+              "JOIN core.linked_accounts la ON la.principal_id = e.principal_id AND la.provider = 'steam' AND la.verified_at IS NOT NULL AND la.unlinked_at IS NULL " +
+              "WHERE oi.order_id = $1 ON CONFLICT (idempotency_key) DO NOTHING",
+              [payment.order_id]
+            );
+            await client.query(
+              "INSERT INTO operations.event_outbox (event_type, aggregate_type, aggregate_id, payload) VALUES ('commerce.order.paid', 'order', $1, $2::jsonb)",
+              [payment.order_id, JSON.stringify({ orderId: payment.order_id, principalId: payment.principal_id, paymentTransactionId: payment.id, provider: "stripe" })]
+            );
+            await client.query(
+              "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES (NULL, 'payment.stripe.succeeded', 'order', $1, 'success', $2::jsonb)",
+              [payment.order_id, JSON.stringify({ eventId: event.id, paymentTransactionId: payment.id })]
+            );
+          } else {
+            await client.query(
+              "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES (NULL, 'payment.stripe.succeeded_reconciliation', 'order', $1, 'success', $2::jsonb)",
+              [payment.order_id, JSON.stringify({ eventId: event.id, paymentTransactionId: payment.id, orderStatus: payment.order_status })]
+            );
+          }
         }
       } else if (supportedFailure) {
         await client.query(

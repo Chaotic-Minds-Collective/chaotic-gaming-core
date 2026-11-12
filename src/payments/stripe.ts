@@ -89,7 +89,6 @@ export async function createStripeCheckoutSession(
   params.set("client_reference_id", input.orderId);
   params.set("metadata[order_id]", input.orderId);
   params.set("metadata[principal_id]", input.principalId);
-  params.set("expires_at", String(Math.floor(Date.now() / 1000) + 3600));
 
   input.lines.forEach((line, index) => {
     const prefix = "line_items[" + index + "]";
