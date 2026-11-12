@@ -17,6 +17,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     publicServer: randomUUID(),
     privateServer: randomUUID(),
     userPrincipal: randomUUID(),
+    steamLinkPrincipal: randomUUID(),
     otherPrincipal: randomUUID(),
     servicePrincipal: randomUUID(),
     product: randomUUID(),
@@ -46,6 +47,8 @@ test("public server listing hides unlisted servers and reward workers use leased
 
     await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.userPrincipal]);
     await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.userPrincipal, username]);
+    await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.steamLinkPrincipal]);
+    await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.steamLinkPrincipal, "test_steam_link_" + suffix.slice(0, 12)]);
     await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.otherPrincipal]);
     await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.otherPrincipal, "test_other_" + suffix.slice(0, 12)]);
     await pool.query(
@@ -114,7 +117,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     // exercising a new verified link, preserving one active link per provider.
     await pool.query("UPDATE core.linked_accounts SET unlinked_at = NOW() WHERE id = $1", [ids.linkedAccount]);
 
-    const playerSession = await issueSession(ids.userPrincipal, {
+    const playerSession = await issueSession(ids.steamLinkPrincipal, {
       headers: { "user-agent": "core-integration-test" },
       ip: "127.0.0.1",
     });
@@ -210,7 +213,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     });
     assert.equal(resolvedSteamLink.statusCode, 200);
     assert.equal(resolvedSteamLink.json().data.linked, true);
-    assert.equal(resolvedSteamLink.json().data.principalId, ids.userPrincipal);
+    assert.equal(resolvedSteamLink.json().data.principalId, ids.steamLinkPrincipal);
 
     const claimResponse = await app.inject({
       method: "POST",
@@ -247,7 +250,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     assert.equal(stored.rows[0].attempts, 1);
   } finally {
     await pool.query("DELETE FROM operations.audit_logs WHERE actor_principal_id = ANY($1::uuid[]) OR resource_id = ANY($2::text[])", [
-      [ids.servicePrincipal, ids.userPrincipal, ids.otherPrincipal],
+      [ids.servicePrincipal, ids.userPrincipal, ids.steamLinkPrincipal, ids.otherPrincipal],
       [ids.publicServer, ids.privateServer, ids.reward, steamExternalId],
     ]);
     await pool.query("DELETE FROM commerce.reward_attempts WHERE reward_id = $1", [ids.reward]);
@@ -255,16 +258,16 @@ test("public server listing hides unlisted servers and reward workers use leased
     await pool.query("DELETE FROM commerce.entitlements WHERE id = $1", [ids.entitlement]);
     await pool.query("DELETE FROM core.linked_accounts WHERE provider = 'steam' AND external_id IN ($1, $2)", ["76561198000000000", steamExternalId]);
     await pool.query("DELETE FROM core.identity_assertion_nonces WHERE provider = 'steam' AND external_id = $1", [steamExternalId]);
-    await pool.query("DELETE FROM core.identity_link_challenges WHERE principal_id = $1", [ids.userPrincipal]);
-    await pool.query("DELETE FROM core.auth_sessions WHERE principal_id = ANY($1::uuid[])", [[ids.userPrincipal, ids.otherPrincipal]]);
+    await pool.query("DELETE FROM core.identity_link_challenges WHERE principal_id = ANY($1::uuid[])", [[ids.userPrincipal, ids.steamLinkPrincipal]]);
+    await pool.query("DELETE FROM core.auth_sessions WHERE principal_id = ANY($1::uuid[])", [[ids.userPrincipal, ids.steamLinkPrincipal, ids.otherPrincipal]]);
     await pool.query("DELETE FROM commerce.order_items WHERE product_id = $1", [ids.product]);
     await pool.query("DELETE FROM commerce.orders WHERE principal_id = $1", [ids.userPrincipal]);
     await pool.query("DELETE FROM commerce.products WHERE id = $1", [ids.product]);
     await pool.query("DELETE FROM core.service_credentials WHERE principal_id = $1", [ids.servicePrincipal]);
     await pool.query("DELETE FROM core.principal_role_assignments WHERE principal_id = $1", [ids.servicePrincipal]);
     await pool.query("DELETE FROM core.service_accounts WHERE principal_id = $1", [ids.servicePrincipal]);
-    await pool.query("DELETE FROM core.users WHERE principal_id = ANY($1::uuid[])", [[ids.userPrincipal, ids.otherPrincipal]]);
-    await pool.query("DELETE FROM core.principals WHERE id = ANY($1::uuid[])", [[ids.userPrincipal, ids.otherPrincipal, ids.servicePrincipal]]);
+    await pool.query("DELETE FROM core.users WHERE principal_id = ANY($1::uuid[])", [[ids.userPrincipal, ids.steamLinkPrincipal, ids.otherPrincipal]]);
+    await pool.query("DELETE FROM core.principals WHERE id = ANY($1::uuid[])", [[ids.userPrincipal, ids.steamLinkPrincipal, ids.otherPrincipal, ids.servicePrincipal]]);
     await pool.query("DELETE FROM operations.server_heartbeats WHERE server_id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
     await pool.query("DELETE FROM core.servers WHERE id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
     await pool.query("DELETE FROM core.clusters WHERE id = $1", [ids.cluster]);
