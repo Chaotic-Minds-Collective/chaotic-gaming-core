@@ -31,3 +31,12 @@ The shared platform backend for Chaotic Gaming. This repository owns player iden
 
 ## Current scope
 The initial migration establishes identity, linked accounts, sessions, RBAC, service credentials, audit logs, an event outbox and idempotency records. Authentication flows and business APIs are added in subsequent milestones.
+## Discord account linking
+
+Discord linking uses the existing Core OAuth2 authorization-code flow. The website calls `POST /auth/discord-link/challenge` through its server-side session proxy, relays the short-lived binding cookie in an HttpOnly website cookie, and forwards the Discord callback to Core's `GET /auth/discord-link/callback` endpoint. The Core callback URL remains internal; Discord's registered redirect URI is the website BFF endpoint.
+
+Configure `DISCORD_OAUTH_CLIENT_ID`, `DISCORD_OAUTH_CLIENT_SECRET`, `DISCORD_OAUTH_REDIRECT_URL` and `DISCORD_LINK_COMPLETE_URL` together. Register this exact redirect URI in the Discord Developer Portal:
+
+`https://www.chaoticmindsgaming.com/api/account/link/discord/callback`
+
+The completion URL should point to the website's `/account` page. The flow requests only the `identify` scope, verifies a one-time state challenge and session binding, and does not persist Discord access tokens.
