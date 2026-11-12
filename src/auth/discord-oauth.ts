@@ -14,12 +14,13 @@ const userSchema = z.object({
 });
 
 export class DiscordOAuthError extends Error {
+  code: string;
+
   constructor(code: string, message: string) {
     super(message);
     this.name = "DiscordOAuthError";
     this.code = code;
   }
-  code: string;
 }
 
 export interface DiscordOAuthConfig {
@@ -114,7 +115,12 @@ export async function exchangeDiscordAuthorizationCode(
       );
     }
 
-    const tokenResult = tokenSchema.safeParse(await tokenResponse.json());
+    const tokenPayload: unknown = await tokenResponse.json();
+    if (typeof tokenPayload === "object" && tokenPayload !== null
+      && "access_token" in tokenPayload && typeof tokenPayload.access_token === "string") {
+      accessToken = tokenPayload.access_token;
+    }
+    const tokenResult = tokenSchema.safeParse(tokenPayload);
     if (!tokenResult.success || tokenResult.data.token_type.toLowerCase() !== "bearer"
       || !tokenResult.data.scope.split(/\s+/).includes("identify")) {
       throw new DiscordOAuthError(

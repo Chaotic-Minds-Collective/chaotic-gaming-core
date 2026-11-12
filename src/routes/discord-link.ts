@@ -6,13 +6,11 @@ import {
   createDiscordAuthorizationUrl,
   DiscordOAuthError,
   exchangeDiscordAuthorizationCode,
+  type DiscordLinkedIdentity,
 } from "../auth/discord-oauth.js";
 import { config } from "../config.js";
 import { pool } from "../db.js";
 
-const stateSchema = z.object({
-  state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-});
 const callbackSchema = z.object({
   code: z.string().min(1).max(2048),
   state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
@@ -112,7 +110,7 @@ export async function registerDiscordLinkRoutes(app: FastifyInstance): Promise<v
       });
     }
 
-    let identity;
+    let identity: DiscordLinkedIdentity;
     try {
       identity = await exchangeDiscordAuthorizationCode(oauth, parsed.data.code);
     } catch (error) {
