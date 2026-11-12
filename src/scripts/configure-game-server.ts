@@ -6,7 +6,7 @@ if (!serverId || !rawConfig) {
   throw new Error("Usage: npm run server:configure -- <server-uuid> '<JSON configuration>'");
 }
 const configSchema = z.object({
-  publicHostname: z.string().min(1).max(255).nullable().optional(),
+  publicHostname: z.string().min(1).max(253).refine((value) => !/[\/?#@\s]/.test(value) && !value.includes("://"), "Use a hostname or IP address without a URL, path, or port.").nullable().optional(),
   gamePort: z.number().int().min(1).max(65535).nullable().optional(),
   queryPort: z.number().int().min(1).max(65535).nullable().optional(),
   maxPlayers: z.number().int().min(1).max(10000).nullable().optional(),
