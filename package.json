@@ -1,6 +1,6 @@
 {
   "name": "@chaotic-gaming/core",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
@@ -9,7 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --test plugins/registry/test/*.test.js",
+    "test": "npm run build && node --test test/*.test.js plugins/registry/test/*.test.js",
     "db:migrate": "tsx src/migrate.ts",
     "service:create": "tsx src/scripts/create-service-account.ts",
     "server:create": "tsx src/scripts/create-game-server.ts",
