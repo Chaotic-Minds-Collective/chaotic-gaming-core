@@ -11,7 +11,8 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "service-token:create": "tsx src/cli/create-service-token.ts"
   },
   "dependencies": {
     "@fastify/helmet": "^13.0.1",
