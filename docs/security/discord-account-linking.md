@@ -6,7 +6,13 @@
 
 ## Flow
 1. The player signs in to a Chaotic Gaming account.
-2. The website calls `POST /auth/discord-link/challenge` from the player's browser with their Core bearer session, retaining the response cookie (use credentials when fetching across origins). Server-to-server challenge creation does not establish browser ownership.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:c8ba84b956418353425c99977265ae320f5e23f5db575c7f677baf947e0dc338 -->
+
+2. The website calls `POST /auth/discord-link/challenge` from the player's browser with their Core bearer session. The website and Core must be **same-site** (the same scheme and registrable domain) for the browser to retain the `SameSite=Lax` binding cookie. For cross-origin requests within that site, use `credentials: "include"` and ensure the deployment allows credentialed CORS requests from the website origin. Credentials alone do not allow a cross-site fetch response to set this cookie; this implementation provides no cross-site challenge flow. Server-to-server challenge creation does not establish browser ownership.
+
+<!-- /coderabbit-ai-generated:v1 -->
 3. Core stores a SHA-256 hash of the random state combined with a separate random browser binding, bound to that principal and expiring in 10 minutes. The binding is sent only in an HttpOnly, SameSite=Lax cookie; production uses a Secure, host-prefixed cookie.
 4. The browser redirects to the returned Discord OAuth authorization URL using the `identify` scope only.
 5. Discord redirects to `GET /auth/discord-link/callback`.
