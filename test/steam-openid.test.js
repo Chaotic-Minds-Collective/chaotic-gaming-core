@@ -63,3 +63,19 @@ test("rejects a Steam assertion that fails remote signature verification", async
     (error) => error instanceof SteamOpenIdError && error.code === "ASSERTION_REJECTED"
   );
 });
+
+test("accepts Steam's documented alternate endpoint and HTTP claimed-ID scheme", async () => {
+  const claimedId = "http://steamcommunity.com/openid/id/76561198000000000";
+  let usedEndpoint;
+  const result = await verifySteamOpenIdAssertion(makeAssertion({
+    "openid.op_endpoint": "https://steamcommunity.com/openid/",
+    "openid.claimed_id": claimedId,
+    "openid.identity": claimedId,
+    "openid.response_nonce": new Date().toISOString() + "fractional-nonce",
+  }), expectedReturnUrl, async (url) => {
+    usedEndpoint = String(url);
+    return new Response("is_valid:true\\n", { status: 200 });
+  });
+  assert.equal(result.steamId, "76561198000000000");
+  assert.equal(usedEndpoint, "https://steamcommunity.com/openid/");
+});
