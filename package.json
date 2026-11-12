@@ -1,6 +1,6 @@
 {
   "name": "@chaotic-gaming/core",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:migrate": "tsx src/migrate.ts",
-    "service:create": "tsx src/scripts/create-service-account.ts"
+    "service:create": "tsx src/scripts/create-service-account.ts",
+    "server:create": "tsx src/scripts/create-game-server.ts"
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.2.1",
