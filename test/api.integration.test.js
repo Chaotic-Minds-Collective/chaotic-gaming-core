@@ -206,6 +206,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     await pool.query("DELETE FROM commerce.entitlements WHERE id = $1", [ids.entitlement]);
     await pool.query("DELETE FROM core.linked_accounts WHERE provider = 'steam' AND external_id IN ($1, $2)", ["76561198000000000", steamExternalId]);
     await pool.query("DELETE FROM core.identity_assertion_nonces WHERE provider = 'steam' AND external_id = $1", [steamExternalId]);
+    await pool.query("DELETE FROM core.identity_link_challenges WHERE principal_id = $1", [ids.userPrincipal]);
     await pool.query("DELETE FROM core.auth_sessions WHERE principal_id = $1", [ids.userPrincipal]);
     await pool.query("DELETE FROM commerce.order_items WHERE product_id = $1", [ids.product]);
     await pool.query("DELETE FROM commerce.orders WHERE principal_id = $1", [ids.userPrincipal]);
