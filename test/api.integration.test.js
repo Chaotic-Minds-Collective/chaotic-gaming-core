@@ -159,6 +159,14 @@ test("public server listing hides unlisted servers and reward workers use leased
     assert.equal(steamLinkResponse.statusCode, 201, steamLinkResponse.body);
     assert.equal(steamLinkResponse.json().data.externalId, steamExternalId);
 
+    const linkedAccountsResponse = await app.inject({
+      method: "GET",
+      url: "/auth/linked-accounts",
+      headers: { authorization: "Bearer " + playerSession.token },
+    });
+    assert.equal(linkedAccountsResponse.statusCode, 200);
+    assert.equal(linkedAccountsResponse.json().data.some((account) => account.provider === "steam" && account.externalId === steamExternalId), true);
+
     const nonceReplayState = randomBytes(32).toString("base64url");
     const nonceReplayChallenge = await app.inject({
       method: "POST",
