@@ -1,8 +1,8 @@
 node_modules/
 dist/
-coverage/
 .env
 .env.*
 !.env.example
+coverage/
 *.log
 .DS_Store

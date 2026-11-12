@@ -1,35 +1,49 @@
 import Fastify from "fastify";
-import helmet from "@fastify/helmet";
-import { pool } from "./db/pool.js";
+import rateLimit from "@fastify/rate-limit";
+import { config } from "./config.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { registerCommerceRoutes } from "./routes/commerce.js";
+import { registerGameEventRoutes } from "./routes/game-events.js";
+import { registerHealthRoutes } from "./routes/health.js";
+import { registerIntegrationRoutes } from "./routes/integrations.js";
+import { registerPlayerResolutionRoutes } from "./routes/player-resolution.js";
+import { registerPluginRoutes } from "./routes/plugins.js";
+import { registerRewardRoutes } from "./routes/rewards.js";
+import { registerServerRoutes } from "./routes/servers.js";
+import { registerSteamLinkRoutes } from "./routes/steam-link.js";
 
-export async function buildApp() {
+export function buildApp() {
   const app = Fastify({
-    logger: { level: process.env.LOG_LEVEL ?? "info" },
-    trustProxy: false,
+    logger: { level: config.LOG_LEVEL },
     bodyLimit: 1_048_576,
+    trustProxy: false
   });
 
-  await app.register(helmet);
+  app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
 
-  app.get("/health/live", async () => ({ status: "ok" }));
-
-  app.get("/health/ready", async (_request, reply) => {
-    try {
-      await pool.query("SELECT 1");
-      return { status: "ready", database: "reachable" };
-    } catch {
-      return reply.code(503).send({ status: "not_ready", database: "unavailable" });
-    }
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("X-Frame-Options", "DENY");
+    reply.header("Referrer-Policy", "no-referrer");
+    reply.header("Cache-Control", "no-store");
+    return payload;
   });
 
-  app.setErrorHandler((error, _request, reply) => {
-    app.log.error(error);
-    const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
-    return reply.code(statusCode).send({
-      error: statusCode >= 500 ? "internal_server_error" : "request_error",
-      message: statusCode >= 500 ? "An unexpected error occurred." : error.message,
-    });
-  });
+  app.get("/", async () => ({
+    name: "Chaotic Gaming Core API",
+    version: "1.2.1",
+    docs: "https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs"
+  }));
 
+  void registerHealthRoutes(app);
+  void registerAuthRoutes(app);
+  void registerIntegrationRoutes(app);
+  void registerCommerceRoutes(app);
+  void registerServerRoutes(app);
+  void registerGameEventRoutes(app);
+  void registerPluginRoutes(app);
+  void registerRewardRoutes(app);
+  void registerPlayerResolutionRoutes(app);
+  void registerSteamLinkRoutes(app);
   return app;
 }

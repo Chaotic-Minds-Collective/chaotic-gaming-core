@@ -1,12 +1,14 @@
 import "dotenv/config";
 import { z } from "zod";
 
-const envSchema = z.object({
+const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   HOST: z.string().default("127.0.0.1"),
-  PORT: z.coerce.number().int().min(1).max(65535).default(4100),
-  DATABASE_URL: z.string().min(1),
+  DATABASE_URL: z.string().url().optional(),
   DATABASE_SSL: z.string().default("false").transform((value) => value === "true"),
+  STEAM_OPENID_RETURN_URL: z.string().url().optional(),
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info")
 });
 
-export const config = envSchema.parse(process.env);
+export const config = schema.parse(process.env);
