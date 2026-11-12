@@ -25,7 +25,7 @@ function makeAssertion(overrides = {}) {
 
 test("verifies a signed Steam OpenID assertion and extracts SteamID64", async () => {
   let captured;
-  const result = await verifySteamOpenIdAssertion(makeAssertion(), expectedReturnUrl, async (url, init) => {
+  const result = await verifySteamOpenIdAssertion(makeAssertion(), expectedReturnUrl, "s".repeat(43), async (url, init) => {
     captured = { url: String(url), init };
     return new Response("ns:http://specs.openid.net/auth/2.0\nis_valid:true\n", { status: 200 });
   });
@@ -37,7 +37,7 @@ test("verifies a signed Steam OpenID assertion and extracts SteamID64", async ()
 
 test("rejects a callback URL outside the configured website callback", async () => {
   await assert.rejects(
-    verifySteamOpenIdAssertion(makeAssertion({ "openid.return_to": "https://attacker.example/callback?state=" + "s".repeat(43) }), expectedReturnUrl),
+    verifySteamOpenIdAssertion(makeAssertion({ "openid.return_to": "https://attacker.example/callback?state=" + "s".repeat(43) }), expectedReturnUrl, "s".repeat(43)),
     (error) => error instanceof SteamOpenIdError && error.code === "INVALID_RETURN_URL"
   );
 });
@@ -45,21 +45,21 @@ test("rejects a callback URL outside the configured website callback", async () 
 test("rejects an expired Steam response nonce", async () => {
   const expired = new Date(Date.now() - 20 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
   await assert.rejects(
-    verifySteamOpenIdAssertion(makeAssertion({ "openid.response_nonce": expired + "old-nonce" }), expectedReturnUrl),
+    verifySteamOpenIdAssertion(makeAssertion({ "openid.response_nonce": expired + "old-nonce" }), expectedReturnUrl, "s".repeat(43)),
     (error) => error instanceof SteamOpenIdError && error.code === "EXPIRED_NONCE"
   );
 });
 
 test("rejects assertions that do not sign the callback and identity fields", async () => {
   await assert.rejects(
-    verifySteamOpenIdAssertion(makeAssertion({ "openid.signed": "op_endpoint,assoc_handle" }), expectedReturnUrl),
+    verifySteamOpenIdAssertion(makeAssertion({ "openid.signed": "op_endpoint,assoc_handle" }), expectedReturnUrl, "s".repeat(43)),
     (error) => error instanceof SteamOpenIdError && error.code === "INVALID_ASSERTION"
   );
 });
 
 test("rejects a Steam assertion that fails remote signature verification", async () => {
   await assert.rejects(
-    verifySteamOpenIdAssertion(makeAssertion(), expectedReturnUrl, async () => new Response("is_valid:false\n", { status: 200 })),
+    verifySteamOpenIdAssertion(makeAssertion(), expectedReturnUrl, "s".repeat(43), async () => new Response("is_valid:false\n", { status: 200 })),
     (error) => error instanceof SteamOpenIdError && error.code === "ASSERTION_REJECTED"
   );
 });
@@ -72,7 +72,7 @@ test("accepts Steam's documented alternate endpoint and HTTP claimed-ID scheme",
     "openid.claimed_id": claimedId,
     "openid.identity": claimedId,
     "openid.response_nonce": new Date().toISOString() + "fractional-nonce",
-  }), expectedReturnUrl, async (url) => {
+  }), expectedReturnUrl, "s".repeat(43), async (url) => {
     usedEndpoint = String(url);
     return new Response("is_valid:true\\n", { status: 200 });
   });
