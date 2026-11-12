@@ -26,7 +26,6 @@ test("public server listing hides unlisted servers and reward workers use leased
   const sku = `TEST-${suffix.replaceAll("-", "").slice(0, 20).toUpperCase()}`;
   const applicationName = `test-reward-worker-${suffix}`;
   const token = `cg_srv_${randomBytes(36).toString("base64url")}`;
-  let setupComplete = false;
 
   try {
     await pool.query(
@@ -104,7 +103,6 @@ test("public server listing hides unlisted servers and reward workers use leased
        SELECT $1, id, 'server', $2 FROM core.roles WHERE role_key = 'reward_worker'`,
       [ids.servicePrincipal, ids.publicServer]
     );
-    setupComplete = true;
 
     const publicResponse = await app.inject({ method: "GET", url: "/servers" });
     assert.equal(publicResponse.statusCode, 200);
@@ -153,26 +151,25 @@ test("public server listing hides unlisted servers and reward workers use leased
     assert.equal(stored.rows[0].status, "delivered");
     assert.equal(stored.rows[0].attempts, 1);
   } finally {
-    if (setupComplete) {
-      await pool.query("DELETE FROM operations.audit_logs WHERE actor_principal_id = $1 OR resource_id = ANY($2::text[])", [
-        ids.servicePrincipal,
-        [ids.publicServer, ids.privateServer],
-      ]);
-      await pool.query("DELETE FROM commerce.reward_attempts WHERE reward_id = $1", [ids.reward]);
-      await pool.query("DELETE FROM commerce.reward_queue WHERE id = $1", [ids.reward]);
-      await pool.query("DELETE FROM commerce.entitlements WHERE id = $1", [ids.entitlement]);
-      await pool.query("DELETE FROM commerce.order_items WHERE product_id = $1", [ids.product]);
-      await pool.query("DELETE FROM commerce.orders WHERE principal_id = $1", [ids.userPrincipal]);
-      await pool.query("DELETE FROM commerce.products WHERE id = $1", [ids.product]);
-      await pool.query("DELETE FROM core.service_credentials WHERE principal_id = $1", [ids.servicePrincipal]);
-      await pool.query("DELETE FROM core.principal_role_assignments WHERE principal_id = $1", [ids.servicePrincipal]);
-      await pool.query("DELETE FROM core.service_accounts WHERE principal_id = $1", [ids.servicePrincipal]);
-      await pool.query("DELETE FROM core.users WHERE principal_id = $1", [ids.userPrincipal]);
-      await pool.query("DELETE FROM core.principals WHERE id = ANY($1::uuid[])", [[ids.userPrincipal, ids.servicePrincipal]]);
-      await pool.query("DELETE FROM operations.server_heartbeats WHERE server_id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
-      await pool.query("DELETE FROM core.servers WHERE id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
-      await pool.query("DELETE FROM core.clusters WHERE id = $1", [ids.cluster]);
-    }
+    await pool.query("DELETE FROM operations.audit_logs WHERE actor_principal_id = $1 OR resource_id = ANY($2::text[])", [
+      ids.servicePrincipal,
+      [ids.publicServer, ids.privateServer, ids.reward],
+    ]);
+    await pool.query("DELETE FROM commerce.reward_attempts WHERE reward_id = $1", [ids.reward]);
+    await pool.query("DELETE FROM commerce.reward_queue WHERE id = $1", [ids.reward]);
+    await pool.query("DELETE FROM commerce.entitlements WHERE id = $1", [ids.entitlement]);
+    await pool.query("DELETE FROM commerce.order_items WHERE product_id = $1", [ids.product]);
+    await pool.query("DELETE FROM commerce.orders WHERE principal_id = $1", [ids.userPrincipal]);
+    await pool.query("DELETE FROM commerce.products WHERE id = $1", [ids.product]);
+    await pool.query("DELETE FROM core.service_credentials WHERE principal_id = $1", [ids.servicePrincipal]);
+    await pool.query("DELETE FROM core.principal_role_assignments WHERE principal_id = $1", [ids.servicePrincipal]);
+    await pool.query("DELETE FROM core.service_accounts WHERE principal_id = $1", [ids.servicePrincipal]);
+    await pool.query("DELETE FROM core.users WHERE principal_id = $1", [ids.userPrincipal]);
+    await pool.query("DELETE FROM core.principals WHERE id = ANY($1::uuid[])", [[ids.userPrincipal, ids.servicePrincipal]]);
+    await pool.query("DELETE FROM operations.server_heartbeats WHERE server_id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
+    await pool.query("DELETE FROM core.servers WHERE id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
+    await pool.query("DELETE FROM core.clusters WHERE id = $1", [ids.cluster]);
     await app.close();
+    await pool.end();
   }
 });
