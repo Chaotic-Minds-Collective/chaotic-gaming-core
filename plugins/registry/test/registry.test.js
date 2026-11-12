@@ -62,7 +62,7 @@ test("prevents enabling plugins before dependencies are enabled", () => {
   registry.transition("com.chaoticgaming.platform.shared-core", "VALIDATED");
   registry.transition("com.chaoticgaming.platform.chat-bridge", "VALIDATED");
   assert.throws(
-    () => registry.transition("com.chaoticgaming.platform.chat-bridge", "ENABLED),
+    () => registry.transition("com.chaoticgaming.platform.chat-bridge", "ENABLED"),
     /Dependency is not enabled/
   );
 });
