@@ -6,6 +6,7 @@ import { registerCommerceRoutes } from "./routes/commerce.js";
 import { registerGameEventRoutes } from "./routes/game-events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIntegrationRoutes } from "./routes/integrations.js";
+import { registerPlayerResolutionRoutes } from "./routes/player-resolution.js";
 import { registerPluginRoutes } from "./routes/plugins.js";
 import { registerRewardRoutes } from "./routes/rewards.js";
 import { registerServerRoutes } from "./routes/servers.js";
@@ -41,5 +42,6 @@ export function buildApp() {
   void registerGameEventRoutes(app);
   void registerPluginRoutes(app);
   void registerRewardRoutes(app);
+  void registerPlayerResolutionRoutes(app);
   return app;
 }
