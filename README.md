@@ -21,9 +21,10 @@ See the [central plugin catalogue and ecosystem documentation](https://github.co
 
 1. Install Node.js 22 or newer.
 2. Copy `.env.example` to `.env` and set `DATABASE_URL`.
-3. Run `npm install`.
-4. Run `npm run db:migrate` against a non-production database.
-5. Run `npm run dev`.
+3. Set `STEAM_OPENID_RETURN_URL` to the website's exact Steam callback URL.
+4. Run `npm install`.
+5. Run `npm run db:migrate` against a non-production database.
+6. Run `npm run dev`.
 
 The API listens on `PORT` (default 3001). `GET /health/live` is process liveness; `GET /health/ready` checks PostgreSQL connectivity.
 
@@ -39,11 +40,11 @@ Configure its public connection details:
 
 Create a least-privilege service account:
 
-`npm run service:create -- 7dtd-heartbeat --role server_heartbeat --scope-type server --scope-id <SERVER_UUID>`
+`npm run service:create -- 7dtd-event-bridge --role game_event_publisher --scope-type server --scope-id <SERVER_UUID>`
 
-Assign a role to an existing principal:
+Assign additional roles to an existing principal:
 
-`npm run role:assign -- <PRINCIPAL_UUID> server_admin server <SERVER_UUID>`
+`npm run role:assign -- <PRINCIPAL_UUID> reward_worker server <SERVER_UUID>`
 
 Create or update a draft product:
 
@@ -51,16 +52,13 @@ Create or update a draft product:
 
 Run administration commands only from a trusted environment with a non-production database until the deployment is approved. Service credentials are printed once; store them in the host's secret manager.
 
-## Database
-
-Migrations are in `migrations/` and are applied in filename order. The migration runner records applied files in `operations.schema_migrations`. A GitHub Actions workflow applies the complete migration chain to a fresh PostgreSQL database. Back up databases before applying migrations. Never point local development at production.
-
 ## Security baseline
 
 - Never commit credentials, tokens, or production data.
 - Store only hashes of opaque session and service credentials.
 - Enforce permissions server-side; Discord roles are not platform permissions.
-- Verify external account ownership before linking.
+- Steam linking verifies the signed OpenID assertion server-side and rejects nonce replay.
+- External account linking must prove ownership; never link by username alone.
 - Use least-privilege service identities for each integration.
 - Audit authorization-sensitive actions.
 - Payment webhooks must be signature-verified and idempotent before granting entitlements.
@@ -68,4 +66,4 @@ Migrations are in `migrations/` and are applied in filename order. The migration
 
 ## Status
 
-Foundation implementation is committed and CI-tested. External identity linking, account recovery/email verification, payment-provider integration, actual game reward fulfillment, artifact signing/sandboxing and production operations remain incomplete. No production database migrations have been applied and no production service has been deployed.
+Foundation implementation is committed and CI-tested. External identity linking beyond Steam, account recovery/email verification, payment-provider integration, actual game reward fulfillment, artifact signing/sandboxing and production operations remain incomplete. No production database migrations have been applied and no production service has been deployed.

@@ -10,6 +10,7 @@ import { registerPlayerResolutionRoutes } from "./routes/player-resolution.js";
 import { registerPluginRoutes } from "./routes/plugins.js";
 import { registerRewardRoutes } from "./routes/rewards.js";
 import { registerServerRoutes } from "./routes/servers.js";
+import { registerSteamLinkRoutes } from "./routes/steam-link.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -43,5 +44,6 @@ export function buildApp() {
   void registerPluginRoutes(app);
   void registerRewardRoutes(app);
   void registerPlayerResolutionRoutes(app);
+  void registerSteamLinkRoutes(app);
   return app;
 }

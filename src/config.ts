@@ -7,6 +7,7 @@ const schema = z.object({
   HOST: z.string().default("127.0.0.1"),
   DATABASE_URL: z.string().url().optional(),
   DATABASE_SSL: z.string().default("false").transform((value) => value === "true"),
+  STEAM_OPENID_RETURN_URL: z.string().url().optional(),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info")
 });
 
