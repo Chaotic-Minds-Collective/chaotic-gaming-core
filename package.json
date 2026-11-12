@@ -1,6 +1,6 @@
 {
   "name": "@chaotic-gaming/core",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
@@ -13,6 +13,7 @@
     "db:migrate": "tsx src/migrate.ts",
     "service:create": "tsx src/scripts/create-service-account.ts",
     "server:create": "tsx src/scripts/create-game-server.ts",
+    "server:configure": "tsx src/scripts/configure-game-server.ts",
     "role:assign": "tsx src/scripts/assign-role.ts",
     "product:upsert": "tsx src/scripts/upsert-product.ts"
   },
