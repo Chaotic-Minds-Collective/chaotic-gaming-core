@@ -139,7 +139,9 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
       return reply.code(503).send({ error: { code: "WEBHOOK_NOT_CONFIGURED", message: "Stripe webhook verification is not configured." } });
     }
     const rawBody = (request as RawBodyRequest).rawBody;
-    if (!rawBody || !verifyStripeSignature(rawBody, request.headers["stripe-signature"], config.STRIPE_WEBHOOK_SECRET)) {
+    const signatureHeader = request.headers["stripe-signature"];
+    const signature = Array.isArray(signatureHeader) ? signatureHeader[0] : signatureHeader;
+    if (!rawBody || !verifyStripeSignature(rawBody, signature, config.STRIPE_WEBHOOK_SECRET)) {
       return reply.code(400).send({ error: { code: "INVALID_WEBHOOK_SIGNATURE", message: "The Stripe signature is invalid or expired." } });
     }
 
