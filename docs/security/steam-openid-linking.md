@@ -74,5 +74,5 @@ Requires a server-scoped `players.resolve` service permission. Only verified, ac
 - Steam response nonces are freshness-checked and stored as SHA-256 hashes to reject replay.
 - Steam signatures are verified by posting the assertion back to Steam.
 - One active Steam identity can belong to only one player, and a player can have only one active Steam identity.
-- Unlinking/relinking uses active-row uniqueness; historical links remain available for audit.
+- The schema preserves historical unlinked rows and enforces uniqueness for active links. A user-facing unlink endpoint is not implemented yet.
 - Account linking does not grant game-admin permissions or moderation privileges.
