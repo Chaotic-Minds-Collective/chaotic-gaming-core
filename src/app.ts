@@ -3,6 +3,7 @@ import rateLimit from "@fastify/rate-limit";
 import { config } from "./config.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCommerceRoutes } from "./routes/commerce.js";
+import { registerDiscordLinkRoutes } from "./routes/discord-link.js";
 import { registerGameEventRoutes } from "./routes/game-events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIntegrationRoutes } from "./routes/integrations.js";
@@ -45,5 +46,6 @@ export function buildApp() {
   void registerRewardRoutes(app);
   void registerPlayerResolutionRoutes(app);
   void registerSteamLinkRoutes(app);
+  void registerDiscordLinkRoutes(app);
   return app;
 }
