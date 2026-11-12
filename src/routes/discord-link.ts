@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
 import { requirePrincipal } from "../auth/session.js";
 import { DiscordOAuthError, exchangeDiscordAuthorizationCode } from "../auth/discord-oauth.js";
@@ -19,7 +19,7 @@ function isDiscordOAuthConfigured(): boolean {
   );
 }
 
-function successResponse(reply: Parameters<Parameters<FastifyInstance["get"]>[2]>[1], status: string) {
+function successResponse(reply: FastifyReply, status: string) {
   if (config.DISCORD_LINK_COMPLETE_URL) {
     const target = new URL(config.DISCORD_LINK_COMPLETE_URL);
     target.searchParams.set("discord", status);
