@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { config } from "./config.js";
 import { registerAuthRoutes } from "./routes/auth.js";
+import { registerCommerceRoutes } from "./routes/commerce.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIntegrationRoutes } from "./routes/integrations.js";
 
@@ -24,12 +25,13 @@ export function buildApp() {
 
   app.get("/", async () => ({
     name: "Chaotic Gaming Core API",
-    version: "0.3.0",
+    version: "0.4.0",
     docs: "https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs"
   }));
 
   void registerHealthRoutes(app);
   void registerAuthRoutes(app);
   void registerIntegrationRoutes(app);
+  void registerCommerceRoutes(app);
   return app;
 }
