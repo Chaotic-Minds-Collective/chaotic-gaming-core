@@ -74,7 +74,7 @@ test("accepts Steam's documented alternate endpoint and HTTP claimed-ID scheme",
     "openid.response_nonce": new Date().toISOString() + "fractional-nonce",
   }), expectedReturnUrl, "s".repeat(43), async (url) => {
     usedEndpoint = String(url);
-    return new Response("is_valid:true\\n", { status: 200 });
+    return new Response("is_valid:true\n", { status: 200 });
   });
   assert.equal(result.steamId, "76561198000000000");
   assert.equal(usedEndpoint, "https://steamcommunity.com/openid/");
