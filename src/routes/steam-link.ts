@@ -6,9 +6,36 @@ import { SteamOpenIdError, verifySteamOpenIdAssertion } from "../auth/steam-open
 import { config } from "../config.js";
 import { pool } from "../db.js";
 
-const assertionSchema = z.record(z.string(), z.string());
+const challengeSchema = z.object({
+  state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+const linkSchema = z.object({
+  state: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  assertion: z.record(z.string(), z.string()),
+});
 
 export async function registerSteamLinkRoutes(app: FastifyInstance): Promise<void> {
+  app.post("/auth/steam-link/challenge", {
+    config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
+  }, async (request, reply) => {
+    if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Account linking is temporarily unavailable." } });
+    const principalId = await requirePrincipal(request, reply);
+    if (!principalId) return;
+    const parsed = challengeSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: { code: "INVALID_STEAM_STATE", message: "A valid Steam link state is required." } });
+    }
+
+    const stateHash = createHash("sha256").update(parsed.data.state).digest("hex");
+    const result = await pool.query(
+      `INSERT INTO core.identity_link_challenges (provider, state_hash, principal_id, expires_at)
+       VALUES ('steam', $1, $2, NOW() + INTERVAL '10 minutes')
+       RETURNING expires_at AS "expiresAt"`,
+      [stateHash, principalId]
+    );
+    return reply.code(201).send({ data: { created: true, expiresAt: result.rows[0].expiresAt }, requestId: request.id });
+  });
+
   app.post("/auth/linked-accounts/steam", {
     config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
   }, async (request, reply) => {
@@ -20,14 +47,30 @@ export async function registerSteamLinkRoutes(app: FastifyInstance): Promise<voi
     const principalId = await requirePrincipal(request, reply);
     if (!principalId) return;
 
-    const parsed = assertionSchema.safeParse(request.body);
+    const parsed = linkSchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply.code(400).send({ error: { code: "INVALID_STEAM_ASSERTION", message: "A valid Steam OpenID assertion is required." } });
+      return reply.code(400).send({ error: { code: "INVALID_STEAM_ASSERTION", message: "A valid Steam OpenID assertion and link state are required." } });
+    }
+
+    const stateHash = createHash("sha256").update(parsed.data.state).digest("hex");
+    const challenge = await pool.query(
+      `SELECT id
+         FROM core.identity_link_challenges
+        WHERE provider = 'steam'
+          AND state_hash = $1
+          AND principal_id = $2
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+        LIMIT 1`,
+      [stateHash, principalId]
+    );
+    if (!challenge.rows[0]) {
+      return reply.code(409).send({ error: { code: "STEAM_STATE_INVALID", message: "The Steam link session is invalid, expired or already used." } });
     }
 
     let verified: { steamId: string; nonce: string };
     try {
-      verified = await verifySteamOpenIdAssertion(parsed.data, config.STEAM_OPENID_RETURN_URL);
+      verified = await verifySteamOpenIdAssertion(parsed.data.assertion, config.STEAM_OPENID_RETURN_URL, parsed.data.state);
     } catch (error) {
       if (error instanceof SteamOpenIdError) {
         const status = error.code === "STEAM_UNAVAILABLE" ? 503 : 401;
@@ -41,6 +84,22 @@ export async function registerSteamLinkRoutes(app: FastifyInstance): Promise<voi
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const consumed = await client.query(
+        `UPDATE core.identity_link_challenges
+            SET consumed_at = NOW()
+          WHERE provider = 'steam'
+            AND state_hash = $1
+            AND principal_id = $2
+            AND consumed_at IS NULL
+            AND expires_at > NOW()
+          RETURNING id`,
+        [stateHash, principalId]
+      );
+      if (!consumed.rows[0]) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: { code: "STEAM_STATE_INVALID", message: "The Steam link session is invalid, expired or already used." } });
+      }
+
       const nonce = await client.query(
         `INSERT INTO core.identity_assertion_nonces (provider, nonce_hash, principal_id, external_id)
          VALUES ('steam', $1, $2, $3)
@@ -61,7 +120,7 @@ export async function registerSteamLinkRoutes(app: FastifyInstance): Promise<voi
         [verified.steamId]
       );
       if (existing.rows[0] && existing.rows[0].principal_id !== principalId) {
-        await client.query("ROLLBACK");
+        await client.query("COMMIT");
         return reply.code(409).send({ error: { code: "STEAM_ACCOUNT_ALREADY_LINKED", message: "This Steam account is linked to another Chaotic Gaming account." } });
       }
 
@@ -77,7 +136,7 @@ export async function registerSteamLinkRoutes(app: FastifyInstance): Promise<voi
         [principalId]
       );
       if (ownProvider.rows[0]) {
-        await client.query("ROLLBACK");
+        await client.query("COMMIT");
         return reply.code(409).send({ error: { code: "STEAM_ACCOUNT_ALREADY_SET", message: "Unlink the existing Steam account before linking a different one." } });
       }
 

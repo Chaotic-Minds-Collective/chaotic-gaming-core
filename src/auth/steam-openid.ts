@@ -16,6 +16,7 @@ export class SteamOpenIdError extends Error {
 export async function verifySteamOpenIdAssertion(
   assertion: Record<string, string>,
   expectedReturnUrl: string,
+  expectedState: string,
   fetchImpl: typeof fetch = globalThis.fetch
 ): Promise<{ steamId: string; nonce: string }> {
   const required = [
@@ -64,7 +65,8 @@ export async function verifySteamOpenIdAssertion(
     || returnTo.origin !== expected.origin
     || returnTo.pathname !== expected.pathname
     || returnTo.searchParams.size !== 1
-    || (returnTo.searchParams.get("state")?.length ?? 0) < 32
+    || returnTo.searchParams.get("state") !== expectedState
+    || expectedState.length !== 43
   ) {
     throw new SteamOpenIdError("INVALID_RETURN_URL", "The Steam assertion was issued for an unexpected callback URL.");
   }
