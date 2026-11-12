@@ -113,12 +113,11 @@ test("public server listing hides unlisted servers and reward workers use leased
     });
     assert.deepEqual(unknownIdentityResponse.json().data, { linked: false });
 
-    const playerSession = await issueSession(ids.steamLinkPrincipal, {
     // The resolution fixture already owns a Steam link. Unlink it before
     // exercising a new verified link, preserving one active link per provider.
     await pool.query("UPDATE core.linked_accounts SET unlinked_at = NOW() WHERE id = $1", [ids.linkedAccount]);
 
-    const playerSession = await issueSession(ids.userPrincipal, {
+    const playerSession = await issueSession(ids.steamLinkPrincipal, {
       headers: { "user-agent": "core-integration-test" },
       ip: "127.0.0.1",
     });
