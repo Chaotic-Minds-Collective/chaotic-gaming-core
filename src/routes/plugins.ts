@@ -71,9 +71,11 @@ export async function registerPluginRoutes(app: FastifyInstance): Promise<void> 
       }
 
       const missingDependencies = await client.query<{ dependency_id: string }>(
-        `SELECT dependency_id
-           FROM unnest($1::text[]) AS dependency_id
-          WHERE NOT EXISTS (SELECT 1 FROM core.plugins p WHERE p.plugin_id = dependency_id)`,
+        `SELECT deps.dependency_id
+           FROM unnest($1::text[]) AS deps(dependency_id)
+          WHERE NOT EXISTS (
+            SELECT 1 FROM core.plugins p WHERE p.plugin_id = deps.dependency_id
+          )`,
         [manifest.dependencies]
       );
       if (missingDependencies.rows.length > 0) {
@@ -199,6 +201,35 @@ export async function registerPluginRoutes(app: FastifyInstance): Promise<void> 
         return reply.code(409).send({ error: { code: "PLUGIN_NOT_VALIDATED", message: "Only a validated plugin can be enabled." } });
       }
 
+      if (body.data.desiredState === "enabled") {
+        const existingInstallation = await client.query<{ id: string }>(
+          "SELECT id FROM core.plugin_installations WHERE server_id = $1 AND plugin_id = $2",
+          [params.data.serverId, params.data.pluginId]
+        );
+        if (existingInstallation.rows[0]) {
+          const dependencies = await client.query<{ dependency_plugin_id: string; lifecycle_status: string | null }>(
+            `SELECT d.dependency_plugin_id, i.lifecycle_status
+               FROM core.plugin_dependencies d
+               JOIN core.plugin_versions v ON v.id = d.plugin_version_id
+               LEFT JOIN core.plugin_installations i
+                 ON i.server_id = $1 AND i.plugin_id = d.dependency_plugin_id
+              WHERE v.plugin_id = $2 AND v.version = (SELECT latest_version FROM core.plugins WHERE plugin_id = $2)`,
+            [params.data.serverId, params.data.pluginId]
+          );
+          const unavailable = dependencies.rows.filter((dependency) => !["ENABLED", "HEALTHY"].includes(dependency.lifecycle_status ?? ""));
+          if (unavailable.length > 0) {
+            await client.query("ROLLBACK");
+            return reply.code(409).send({
+              error: {
+                code: "PLUGIN_DEPENDENCY_NOT_ENABLED",
+                message: "Required plugin dependencies must be enabled and healthy first.",
+                details: { dependencies: unavailable.map((item) => item.dependency_plugin_id) }
+              }
+            });
+          }
+        }
+      }
+
       const installation = await client.query(
         `INSERT INTO core.plugin_installations
           (server_id, plugin_id, plugin_version_id, lifecycle_status, desired_state)
@@ -206,6 +237,10 @@ export async function registerPluginRoutes(app: FastifyInstance): Promise<void> 
          ON CONFLICT (server_id, plugin_id) DO UPDATE
            SET plugin_version_id = EXCLUDED.plugin_version_id,
                desired_state = EXCLUDED.desired_state,
+               lifecycle_status = CASE
+                 WHEN core.plugin_installations.lifecycle_status = 'REMOVED' THEN 'DISCOVERED'
+                 ELSE core.plugin_installations.lifecycle_status
+               END,
                updated_at = NOW()
          RETURNING id, plugin_id AS "pluginId", lifecycle_status AS "lifecycleStatus",
                    desired_state AS "desiredState"`,
