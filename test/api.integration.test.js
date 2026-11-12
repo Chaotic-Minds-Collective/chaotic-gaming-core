@@ -22,85 +22,47 @@ test("public server listing hides unlisted servers and reward workers use leased
     reward: randomUUID(),
   };
   const suffix = randomUUID();
-  const username = `test_${suffix.replaceAll("-", "").slice(0, 20)}`;
-  const sku = `TEST-${suffix.replaceAll("-", "").slice(0, 20).toUpperCase()}`;
-  const applicationName = `test-reward-worker-${suffix}`;
-  const token = `cg_srv_${randomBytes(36).toString("base64url")}`;
+  const username = "test_" + suffix.replaceAll("-", "").slice(0, 20);
+  const sku = "TEST-" + suffix.replaceAll("-", "").slice(0, 20).toUpperCase();
+  const applicationName = "test-reward-worker-" + suffix;
+  const token = "cg_srv_" + randomBytes(36).toString("base64url");
 
   try {
+    await pool.query("INSERT INTO core.clusters (id, game_key, name, status) VALUES ($1, '7dtd', $2, 'active')", [ids.cluster, "test-cluster-" + suffix]);
     await pool.query(
-      "INSERT INTO core.clusters (id, game_key, name, status) VALUES ($1, '7dtd', $2, 'active')",
-      [ids.cluster, `test-cluster-${suffix}`]
-    );
-    await pool.query(
-      `INSERT INTO core.servers
-        (id, cluster_id, game_key, name, environment, status, public_hostname, game_port, is_listed)
-       VALUES
-        ($1, $3, '7dtd', 'Public test server', 'production', 'offline', 'public.example.test', 26900, TRUE),
-        ($2, $3, '7dtd', 'Private test server', 'production', 'offline', NULL, NULL, FALSE)`,
+      "INSERT INTO core.servers (id, cluster_id, game_key, name, environment, status, public_hostname, game_port, is_listed) VALUES ($1, $3, '7dtd', 'Public test server', 'production', 'offline', 'public.example.test', 26900, TRUE), ($2, $3, '7dtd', 'Private test server', 'production', 'offline', NULL, NULL, FALSE)",
       [ids.publicServer, ids.privateServer, ids.cluster]
     );
     await pool.query(
-      `INSERT INTO operations.server_heartbeats
-        (server_id, server_version, adapter_version, online, player_count, observed_at)
-       VALUES ($1, 'test-build', 'test-adapter', TRUE, 3, NOW())`,
+      "INSERT INTO operations.server_heartbeats (server_id, server_version, adapter_version, online, player_count, observed_at) VALUES ($1, 'test-build', 'test-adapter', TRUE, 3, NOW())",
       [ids.publicServer]
     );
 
-    await pool.query(
-      "INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')",
-      [ids.userPrincipal]
+    await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.userPrincipal]);
+    await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.userPrincipal, username]);
+    await pool.query("INSERT INTO commerce.products (id, sku, name, product_type, status) VALUES ($1, $2, 'Test reward', 'digital_item', 'active')", [ids.product, sku]);
+    const order = await pool.query(
+      "INSERT INTO commerce.orders (principal_id, currency, subtotal_minor, tax_minor, total_minor, idempotency_key) VALUES ($1, 'USD', 100, 0, 100, $2) RETURNING id",
+      [ids.userPrincipal, "order-" + suffix]
     );
-    await pool.query(
-      "INSERT INTO core.users (principal_id, username) VALUES ($1, $2)",
-      [ids.userPrincipal, username]
-    );
-    await pool.query(
-      "INSERT INTO commerce.products (id, sku, name, product_type, status) VALUES ($1, $2, 'Test reward', 'digital_item', 'active')",
-      [ids.product, sku]
-    );
-    const order = await pool.query<{ id: string }>(
-      `INSERT INTO commerce.orders
-        (principal_id, currency, subtotal_minor, tax_minor, total_minor, idempotency_key)
-       VALUES ($1, 'USD', 100, 0, 100, $2)
-       RETURNING id`,
-      [ids.userPrincipal, `order-${suffix}`]
-    );
-    const orderItem = await pool.query<{ id: string }>(
-      `INSERT INTO commerce.order_items
-        (order_id, product_id, sku_snapshot, name_snapshot, quantity, unit_amount_minor, line_total_minor)
-       VALUES ($1, $2, $3, 'Test reward', 1, 100, 100)
-       RETURNING id`,
+    const orderItem = await pool.query(
+      "INSERT INTO commerce.order_items (order_id, product_id, sku_snapshot, name_snapshot, quantity, unit_amount_minor, line_total_minor) VALUES ($1, $2, $3, 'Test reward', 1, 100, 100) RETURNING id",
       [order.rows[0].id, ids.product, sku]
     );
     await pool.query(
-      `INSERT INTO commerce.entitlements
-        (id, principal_id, product_id, order_item_id, status)
-       VALUES ($1, $2, $3, $4, 'active')`,
+      "INSERT INTO commerce.entitlements (id, principal_id, product_id, order_item_id, status) VALUES ($1, $2, $3, $4, 'active')",
       [ids.entitlement, ids.userPrincipal, ids.product, orderItem.rows[0].id]
     );
     await pool.query(
-      `INSERT INTO commerce.reward_queue
-        (id, entitlement_id, game_key, server_id, target_external_id, delivery_payload, idempotency_key)
-       VALUES ($1, $2, '7dtd', $3, 'steam-test-player', $4::jsonb, $5)`,
-      [ids.reward, ids.entitlement, ids.publicServer, JSON.stringify({ itemId: "test-item", quantity: 1 }), `reward-${suffix}`]
+      "INSERT INTO commerce.reward_queue (id, entitlement_id, game_key, server_id, target_external_id, delivery_payload, idempotency_key) VALUES ($1, $2, '7dtd', $3, 'steam-test-player', $4::jsonb, $5)",
+      [ids.reward, ids.entitlement, ids.publicServer, JSON.stringify({ itemId: "test-item", quantity: 1 }), "reward-" + suffix]
     );
 
+    await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'service', 'active')", [ids.servicePrincipal]);
+    await pool.query("INSERT INTO core.service_accounts (principal_id, application_name) VALUES ($1, $2)", [ids.servicePrincipal, applicationName]);
+    await pool.query("INSERT INTO core.service_credentials (principal_id, credential_hash, label) VALUES ($1, $2, 'integration-test')", [ids.servicePrincipal, hashServiceToken(token)]);
     await pool.query(
-      "INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'service', 'active')",
-      [ids.servicePrincipal]
-    );
-    await pool.query(
-      "INSERT INTO core.service_accounts (principal_id, application_name) VALUES ($1, $2)",
-      [ids.servicePrincipal, applicationName]
-    );
-    await pool.query(
-      "INSERT INTO core.service_credentials (principal_id, credential_hash, label) VALUES ($1, $2, 'integration-test')",
-      [ids.servicePrincipal, hashServiceToken(token)]
-    );
-    await pool.query(
-      `INSERT INTO core.principal_role_assignments (principal_id, role_id, scope_type, scope_id)
-       SELECT $1, id, 'server', $2 FROM core.roles WHERE role_key = 'reward_worker'`,
+      "INSERT INTO core.principal_role_assignments (principal_id, role_id, scope_type, scope_id) SELECT $1, id, 'server', $2 FROM core.roles WHERE role_key = 'reward_worker'",
       [ids.servicePrincipal, ids.publicServer]
     );
 
@@ -116,8 +78,8 @@ test("public server listing hides unlisted servers and reward workers use leased
 
     const claimResponse = await app.inject({
       method: "POST",
-      url: `/integrations/servers/${ids.publicServer}/rewards/claim`,
-      headers: { authorization: `Bearer ${token}` },
+      url: "/integrations/servers/" + ids.publicServer + "/rewards/claim",
+      headers: { authorization: "Bearer " + token },
       payload: { limit: 5 },
     });
     assert.equal(claimResponse.statusCode, 200, claimResponse.body);
@@ -128,8 +90,8 @@ test("public server listing hides unlisted servers and reward workers use leased
 
     const ackResponse = await app.inject({
       method: "POST",
-      url: `/integrations/servers/${ids.publicServer}/rewards/${ids.reward}/ack`,
-      headers: { authorization: `Bearer ${token}` },
+      url: "/integrations/servers/" + ids.publicServer + "/rewards/" + ids.reward + "/ack",
+      headers: { authorization: "Bearer " + token },
       payload: { outcome: "delivered", response: { receipt: "test-grant" } },
     });
     assert.equal(ackResponse.statusCode, 202, ackResponse.body);
@@ -137,17 +99,14 @@ test("public server listing hides unlisted servers and reward workers use leased
 
     const duplicateAck = await app.inject({
       method: "POST",
-      url: `/integrations/servers/${ids.publicServer}/rewards/${ids.reward}/ack`,
-      headers: { authorization: `Bearer ${token}` },
+      url: "/integrations/servers/" + ids.publicServer + "/rewards/" + ids.reward + "/ack",
+      headers: { authorization: "Bearer " + token },
       payload: { outcome: "delivered", response: { receipt: "test-grant" } },
     });
     assert.equal(duplicateAck.statusCode, 202);
     assert.equal(duplicateAck.json().data.duplicate, true);
 
-    const stored = await pool.query<{ status: string; attempts: number }>(
-      "SELECT status, attempts FROM commerce.reward_queue WHERE id = $1",
-      [ids.reward]
-    );
+    const stored = await pool.query("SELECT status, attempts FROM commerce.reward_queue WHERE id = $1", [ids.reward]);
     assert.equal(stored.rows[0].status, "delivered");
     assert.equal(stored.rows[0].attempts, 1);
   } finally {
