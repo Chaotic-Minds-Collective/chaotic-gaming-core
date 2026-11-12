@@ -19,12 +19,14 @@ test("public server listing hides unlisted servers and reward workers use leased
     servicePrincipal: randomUUID(),
     product: randomUUID(),
     entitlement: randomUUID(),
+    linkedAccount: randomUUID(),
     reward: randomUUID(),
   };
   const suffix = randomUUID();
   const username = "test_" + suffix.replaceAll("-", "").slice(0, 20);
   const sku = "TEST-" + suffix.replaceAll("-", "").slice(0, 20).toUpperCase();
   const applicationName = "test-reward-worker-" + suffix;
+  const linkedExternalId = "76561198000000000";
   const token = "cg_srv_" + randomBytes(36).toString("base64url");
 
   try {
@@ -40,6 +42,10 @@ test("public server listing hides unlisted servers and reward workers use leased
 
     await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.userPrincipal]);
     await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.userPrincipal, username]);
+    await pool.query(
+      "INSERT INTO core.linked_accounts (id, principal_id, provider, external_id, external_username, verified_at) VALUES ($1, $2, 'steam', $3, 'test-steam-user', NOW())",
+      [ids.linkedAccount, ids.userPrincipal, linkedExternalId]
+    );
     await pool.query("INSERT INTO commerce.products (id, sku, name, product_type, status) VALUES ($1, $2, 'Test reward', 'digital_item', 'active')", [ids.product, sku]);
     const order = await pool.query(
       "INSERT INTO commerce.orders (principal_id, currency, subtotal_minor, tax_minor, total_minor, idempotency_key) VALUES ($1, 'USD', 100, 0, 100, $2) RETURNING id",
@@ -65,6 +71,10 @@ test("public server listing hides unlisted servers and reward workers use leased
       "INSERT INTO core.principal_role_assignments (principal_id, role_id, scope_type, scope_id) SELECT $1, id, 'server', $2 FROM core.roles WHERE role_key = 'reward_worker'",
       [ids.servicePrincipal, ids.publicServer]
     );
+    await pool.query(
+      "INSERT INTO core.principal_role_assignments (principal_id, role_id, scope_type, scope_id) SELECT $1, id, 'server', $2 FROM core.roles WHERE role_key = 'game_event_publisher'",
+      [ids.servicePrincipal, ids.publicServer]
+    );
 
     const publicResponse = await app.inject({ method: "GET", url: "/servers" });
     assert.equal(publicResponse.statusCode, 200);
@@ -75,6 +85,24 @@ test("public server listing hides unlisted servers and reward workers use leased
     assert.equal(listed.publicHostname, "public.example.test");
     assert.equal(listed.gamePort, 26900);
     assert.equal(listed.playerCount, 3);
+
+    const identityResponse = await app.inject({
+      method: "POST",
+      url: "/integrations/servers/" + ids.publicServer + "/players/resolve",
+      headers: { authorization: "Bearer " + token },
+      payload: { provider: "steam", externalId: linkedExternalId },
+    });
+    assert.equal(identityResponse.statusCode, 200, identityResponse.body);
+    assert.equal(identityResponse.json().data.linked, true);
+    assert.equal(identityResponse.json().data.principalId, ids.userPrincipal);
+
+    const unknownIdentityResponse = await app.inject({
+      method: "POST",
+      url: "/integrations/servers/" + ids.publicServer + "/players/resolve",
+      headers: { authorization: "Bearer " + token },
+      payload: { provider: "steam", externalId: "76561198000000001" },
+    });
+    assert.deepEqual(unknownIdentityResponse.json().data, { linked: false });
 
     const claimResponse = await app.inject({
       method: "POST",
@@ -117,6 +145,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     await pool.query("DELETE FROM commerce.reward_attempts WHERE reward_id = $1", [ids.reward]);
     await pool.query("DELETE FROM commerce.reward_queue WHERE id = $1", [ids.reward]);
     await pool.query("DELETE FROM commerce.entitlements WHERE id = $1", [ids.entitlement]);
+    await pool.query("DELETE FROM core.linked_accounts WHERE id = $1", [ids.linkedAccount]);
     await pool.query("DELETE FROM commerce.order_items WHERE product_id = $1", [ids.product]);
     await pool.query("DELETE FROM commerce.orders WHERE principal_id = $1", [ids.userPrincipal]);
     await pool.query("DELETE FROM commerce.products WHERE id = $1", [ids.product]);
