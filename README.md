@@ -30,7 +30,13 @@ The shared platform backend for Chaotic Gaming. This repository owns player iden
 - Keep production credentials and data out of development/test environments.
 
 ## Current scope
-The initial migration establishes identity, linked accounts, sessions, RBAC, service credentials, audit logs, an event outbox and idempotency records. Authentication flows and business APIs are added in subsequent milestones.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:458c28d158bc356ad2fe533bda02866dd7ae30f03984eab54fef605e7300182b -->
+
+The migrations establish identity, linked accounts, sessions, RBAC, service credentials, audit logs, an event outbox and idempotency records. The API includes authentication, Steam and Discord account linking, server management, player identity resolution, commerce, rewards, game events and plugin persistence.
+
+<!-- /coderabbit-ai-generated:v1 -->
 ## Discord account linking
 
 Discord linking uses the existing Core OAuth2 authorization-code flow. The website calls `POST /auth/discord-link/challenge` through its server-side session proxy, relays the short-lived binding cookie in an HttpOnly website cookie, and forwards the Discord callback to Core's `GET /auth/discord-link/callback` endpoint. The Core callback URL remains internal; Discord's registered redirect URI is the website BFF endpoint.
