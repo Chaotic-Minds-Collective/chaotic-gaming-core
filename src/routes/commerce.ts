@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { z } from "zod";
 import { pool } from "../db.js";
 import { requirePrincipal } from "../auth/session.js";
@@ -12,6 +12,61 @@ const orderSchema = z.object({
   })).min(1).max(20)
 });
 
+
+const createProductSchema = z.object({
+  sku: z.string().min(2).max(64).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  name: z.string().min(2).max(120),
+  description: z.string().max(2000).nullable().optional(),
+  productType: z.enum(["digital_item", "game_entitlement", "subscription", "supporter", "currency_pack", "service"]),
+  status: z.enum(["draft", "active"]).default("draft"),
+  currency: z.string().length(3).transform((value) => value.toUpperCase()),
+  amountMinor: z.number().int().min(0).max(100000000)
+});
+
+const updateProductSchema = z.object({
+  name: z.string().min(2).max(120).optional(),
+  description: z.string().max(2000).nullable().optional(),
+  status: z.enum(["draft", "active", "retired"]).optional()
+}).refine((value) => value.name !== undefined || value.description !== undefined || value.status !== undefined);
+
+const productPriceSchema = z.object({
+  currency: z.string().length(3).transform((value) => value.toUpperCase()),
+  amountMinor: z.number().int().min(0).max(100000000)
+});
+
+const productMappingSchema = z.object({
+  serverId: z.string().uuid(),
+  deliveryType: z.string().min(2).max(64),
+  deliveryPayload: z.record(z.string(), z.unknown()).default({})
+});
+
+async function requireCommerceAdmin(request: FastifyRequest, reply: FastifyReply): Promise<string | null> {
+  if (!pool) {
+    reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Commerce administration is temporarily unavailable." } });
+    return null;
+  }
+  const principalId = await requirePrincipal(request, reply);
+  if (!principalId) return null;
+  const permission = await pool.query(
+    "SELECT 1 FROM core.principal_role_assignments pra " +
+    "JOIN core.role_permissions rp ON rp.role_id = pra.role_id " +
+    "JOIN core.permissions p ON p.id = rp.permission_id " +
+    "WHERE pra.principal_id = $1 AND p.permission_key = 'commerce.manage' " +
+    "AND pra.scope_type = 'platform' AND pra.scope_id IS NULL " +
+    "AND (pra.expires_at IS NULL OR pra.expires_at > NOW()) LIMIT 1",
+    [principalId]
+  );
+  if (!permission.rowCount) {
+    await pool.query(
+      "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, outcome, metadata) VALUES ($1, 'commerce.admin.denied', 'commerce_catalog', 'denied', $2::jsonb)",
+      [principalId, JSON.stringify({ requestId: request.id })]
+    );
+    reply.code(403).send({ error: { code: "FORBIDDEN", message: "Platform commerce management permission is required." } });
+    return null;
+  }
+  return principalId;
+}
+
 type PricedProduct = {
   id: string;
   sku: string;
@@ -20,6 +75,137 @@ type PricedProduct = {
 };
 
 export async function registerCommerceRoutes(app: FastifyInstance): Promise<void> {
+  app.get("/admin/commerce/products", async (request, reply) => {
+    const actorId = await requireCommerceAdmin(request, reply);
+    if (!actorId) return;
+    const result = await pool!.query(
+      "SELECT p.id, p.sku, p.name, p.description, p.product_type AS \"productType\", p.status, " +
+      "COALESCE((SELECT json_agg(json_build_object('currency', pp.currency, 'amountMinor', pp.amount_minor::text, 'activeFrom', pp.active_from, 'activeUntil', pp.active_until) ORDER BY pp.currency, pp.active_from DESC) FROM commerce.product_prices pp WHERE pp.product_id = p.id), '[]'::json) AS prices, " +
+      "COALESCE((SELECT json_agg(json_build_object('gameKey', pgm.game_key, 'serverId', pgm.server_id, 'serverName', s.name, 'deliveryType', pgm.delivery_type, 'deliveryPayload', pgm.delivery_payload) ORDER BY pgm.game_key) FROM commerce.product_game_mappings pgm LEFT JOIN core.servers s ON s.id = pgm.server_id WHERE pgm.product_id = p.id), '[]'::json) AS \"gameMappings\" " +
+      "FROM commerce.products p ORDER BY p.created_at DESC"
+    );
+    return { data: result.rows, requestId: request.id };
+  });
+
+  app.post("/admin/commerce/products", async (request, reply) => {
+    const actorId = await requireCommerceAdmin(request, reply);
+    if (!actorId) return;
+    const parsed = createProductSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "The product details or initial price are invalid." } });
+
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      const product = await client.query<{ id: string }>(
+        "INSERT INTO commerce.products (sku, name, description, product_type, status) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        [parsed.data.sku, parsed.data.name, parsed.data.description ?? null, parsed.data.productType, parsed.data.status]
+      );
+      const productId = product.rows[0].id;
+      await client.query(
+        "INSERT INTO commerce.product_prices (product_id, currency, amount_minor) VALUES ($1, $2, $3)",
+        [productId, parsed.data.currency, parsed.data.amountMinor]
+      );
+      await client.query(
+        "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.created', 'product', $2, 'success', $3::jsonb)",
+        [actorId, productId, JSON.stringify({ sku: parsed.data.sku, status: parsed.data.status })]
+      );
+      await client.query("COMMIT");
+      return reply.code(201).send({ data: { productId }, requestId: request.id });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      const code = (error as { code?: string }).code;
+      if (code === "23505") return reply.code(409).send({ error: { code: "PRODUCT_SKU_EXISTS", message: "A product with that SKU already exists." } });
+      request.log.error({ err: error }, "Commerce product creation failed");
+      return reply.code(500).send({ error: { code: "PRODUCT_CREATE_FAILED", message: "The product could not be created." } });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.patch("/admin/commerce/products/:productId", async (request, reply) => {
+    const actorId = await requireCommerceAdmin(request, reply);
+    if (!actorId) return;
+    const params = z.object({ productId: z.string().uuid() }).safeParse(request.params);
+    const parsed = updateProductSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "The product update is invalid." } });
+
+    const hasDescription = Object.prototype.hasOwnProperty.call(parsed.data, "description");
+    const result = await pool!.query(
+      "UPDATE commerce.products SET name = COALESCE($2, name), description = CASE WHEN $3 THEN $4 ELSE description END, status = COALESCE($5, status), updated_at = NOW() WHERE id = $1 RETURNING id, sku, name, status",
+      [params.data.productId, parsed.data.name ?? null, hasDescription, parsed.data.description ?? null, parsed.data.status ?? null]
+    );
+    if (!result.rows[0]) return reply.code(404).send({ error: { code: "PRODUCT_NOT_FOUND", message: "The product was not found." } });
+    await pool!.query(
+      "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.updated', 'product', $2, 'success', $3::jsonb)",
+      [actorId, params.data.productId, JSON.stringify({ changedFields: Object.keys(parsed.data) })]
+    );
+    return { data: result.rows[0], requestId: request.id };
+  });
+
+  app.post("/admin/commerce/products/:productId/prices", async (request, reply) => {
+    const actorId = await requireCommerceAdmin(request, reply);
+    if (!actorId) return;
+    const params = z.object({ productId: z.string().uuid() }).safeParse(request.params);
+    const parsed = productPriceSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "The product price is invalid." } });
+
+    const client = await pool!.connect();
+    try {
+      await client.query("BEGIN");
+      const product = await client.query("SELECT id FROM commerce.products WHERE id = $1 FOR UPDATE", [params.data.productId]);
+      if (!product.rowCount) {
+        await client.query("ROLLBACK");
+        return reply.code(404).send({ error: { code: "PRODUCT_NOT_FOUND", message: "The product was not found." } });
+      }
+      await client.query(
+        "UPDATE commerce.product_prices SET active_until = NOW() WHERE product_id = $1 AND currency = $2 AND active_from < NOW() AND (active_until IS NULL OR active_until > NOW())",
+        [params.data.productId, parsed.data.currency]
+      );
+      const price = await client.query(
+        "INSERT INTO commerce.product_prices (product_id, currency, amount_minor) VALUES ($1, $2, $3) RETURNING id, currency, amount_minor::text AS \"amountMinor\", active_from AS \"activeFrom\"",
+        [params.data.productId, parsed.data.currency, parsed.data.amountMinor]
+      );
+      await client.query(
+        "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.price.created', 'product', $2, 'success', $3::jsonb)",
+        [actorId, params.data.productId, JSON.stringify({ currency: parsed.data.currency, amountMinor: parsed.data.amountMinor })]
+      );
+      await client.query("COMMIT");
+      return reply.code(201).send({ data: price.rows[0], requestId: request.id });
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      request.log.error({ err: error }, "Commerce price creation failed");
+      return reply.code(500).send({ error: { code: "PRICE_CREATE_FAILED", message: "The product price could not be created." } });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.put("/admin/commerce/products/:productId/game-mappings/:gameKey", async (request, reply) => {
+    const actorId = await requireCommerceAdmin(request, reply);
+    if (!actorId) return;
+    const params = z.object({ productId: z.string().uuid(), gameKey: z.string().min(2).max(40) }).safeParse(request.params);
+    const parsed = productMappingSchema.safeParse(request.body);
+    if (!params.success || !parsed.success) return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "The game delivery mapping is invalid." } });
+
+    const server = await pool!.query(
+      "SELECT id FROM core.servers WHERE id = $1 AND game_key = $2",
+      [parsed.data.serverId, params.data.gameKey]
+    );
+    if (!server.rowCount) return reply.code(400).send({ error: { code: "SERVER_GAME_MISMATCH", message: "The selected server does not belong to the selected game." } });
+    const product = await pool!.query("SELECT id FROM commerce.products WHERE id = $1", [params.data.productId]);
+    if (!product.rowCount) return reply.code(404).send({ error: { code: "PRODUCT_NOT_FOUND", message: "The product was not found." } });
+
+    const result = await pool!.query(
+      "INSERT INTO commerce.product_game_mappings (product_id, game_key, server_id, delivery_type, delivery_payload) VALUES ($1, $2, $3, $4, $5::jsonb) ON CONFLICT (product_id, game_key) DO UPDATE SET server_id = EXCLUDED.server_id, delivery_type = EXCLUDED.delivery_type, delivery_payload = EXCLUDED.delivery_payload RETURNING id, game_key AS \"gameKey\", server_id AS \"serverId\", delivery_type AS \"deliveryType\", delivery_payload AS \"deliveryPayload\"",
+      [params.data.productId, params.data.gameKey, parsed.data.serverId, parsed.data.deliveryType, JSON.stringify(parsed.data.deliveryPayload)]
+    );
+    await pool!.query(
+      "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'commerce.product.mapping.upserted', 'product', $2, 'success', $3::jsonb)",
+      [actorId, params.data.productId, JSON.stringify({ gameKey: params.data.gameKey, serverId: parsed.data.serverId, deliveryType: parsed.data.deliveryType })]
+    );
+    return { data: result.rows[0], requestId: request.id };
+  });
+
   app.get("/catalog/products", async (request, reply) => {
     if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "The catalog is temporarily unavailable." } });
     const currency = typeof request.query === "object" && request.query !== null && "currency" in request.query
