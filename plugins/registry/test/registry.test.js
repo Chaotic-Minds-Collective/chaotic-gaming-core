@@ -36,7 +36,7 @@ test("rejects missing fields, invalid IDs, versions and duplicate capabilities",
   assert.throws(() => validatePluginManifest(manifest({ id: "bad" })), /reverse-domain/);
   assert.throws(() => validatePluginManifest(manifest({ version: "1.0" })), /semantic versioning/);
   assert.throws(() => validatePluginManifest(manifest({ capabilities: ["x", "x"] })), /duplicates/);
-  for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0+build."]) {
+  for (const version of ["1.0.0-01", "1.0.0-alpha..1", "1.0.0+build.", "1".repeat(257)]) {
     assert.throws(() => validatePluginManifest(manifest({ version })), /semantic versioning/);
   }
 });
@@ -62,7 +62,7 @@ test("prevents enabling plugins before dependencies are enabled", () => {
   registry.transition("com.chaoticgaming.platform.shared-core", "VALIDATED");
   registry.transition("com.chaoticgaming.platform.chat-bridge", "VALIDATED");
   assert.throws(
-    () => registry.transition("com.chaoticgaming.platform.chat-bridge", "ENABLED"),
+    () => registry.transition("com.chaoticgaming.platform.chat-bridge", "ENABLED),
     /Dependency is not enabled/
   );
 });

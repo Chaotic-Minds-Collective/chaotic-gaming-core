@@ -25,8 +25,8 @@ export function validatePluginManifest(input) {
   if (typeof input.name !== "string" || !input.name.trim() || input.name.length > 120) {
     throw new PluginManifestError("name must be a non-empty string of at most 120 characters");
   }
-  if (typeof input.version !== "string" || !VERSION_PATTERN.test(input.version)) {
-    throw new PluginManifestError("version must use semantic versioning");
+  if (typeof input.version !== "string" || input.version.length > 256 || !VERSION_PATTERN.test(input.version)) {
+    throw new PluginManifestError("version must use semantic versioning and be at most 256 characters");
   }
   if (!GAMES.has(input.game)) {
     throw new PluginManifestError("game must be platform, atlas, 7dtd, or ark");
