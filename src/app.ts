@@ -30,7 +30,7 @@ export function buildApp() {
 
   app.get("/", async () => ({
     name: "Chaotic Gaming Core API",
-    version: "1.0.0",
+    version: "1.2.1",
     docs: "https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs"
   }));
 
