@@ -16,6 +16,7 @@ const orderParamsSchema = z.object({ orderId: z.string().uuid() });
 const stripeEventSchema = z.object({
   id: z.string().min(1).max(255),
   type: z.string().min(1).max(160),
+  livemode: z.boolean(),
   data: z.object({ object: z.record(z.string(), z.unknown()) })
 });
 
@@ -148,6 +149,9 @@ export async function registerPaymentRoutes(app: FastifyInstance): Promise<void>
     const parsed = stripeEventSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: { code: "INVALID_WEBHOOK_EVENT", message: "The Stripe event payload is invalid." } });
     const event = parsed.data;
+    if (event.livemode !== false) {
+      return reply.code(400).send({ error: { code: "LIVE_MODE_EVENT_REJECTED", message: "Only Stripe test-mode events are accepted." } });
+    }
     const supportedSuccess = event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded";
     const supportedFailure = event.type === "checkout.session.expired" || event.type === "checkout.session.async_payment_failed";
     if (!supportedSuccess && !supportedFailure) return { received: true, ignored: true };
