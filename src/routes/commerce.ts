@@ -82,9 +82,9 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
     try {
       await client.query("BEGIN");
       const entitlementResult = await client.query<{
-        id: string; product_id: string; status: string; quantity: number; sku: string; name: string;
+        id: string; product_id: string; order_item_id: string | null; status: string; quantity: number; sku: string; name: string;
       }>(
-        "SELECT e.id, e.product_id, e.status, e.quantity, p.sku, p.name FROM commerce.entitlements e JOIN commerce.products p ON p.id = e.product_id WHERE e.id = $1 AND e.principal_id = $2 FOR UPDATE OF e",
+        "SELECT e.id, e.product_id, e.order_item_id, e.status, e.quantity, p.sku, p.name FROM commerce.entitlements e JOIN commerce.products p ON p.id = e.product_id WHERE e.id = $1 AND e.principal_id = $2 FOR UPDATE OF e",
         [params.data.entitlementId, principalId]
       );
       const entitlement = entitlementResult.rows[0];
@@ -119,7 +119,7 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
       }
 
       for (const mapping of mappings.rows) {
-        const idempotencyKey = "entitlement:" + entitlement.id + ":" + mapping.game_key;
+        const idempotencyKey = (entitlement.order_item_id ? "order_item:" + entitlement.order_item_id : "entitlement:" + entitlement.id) + ":" + mapping.game_key;
         const payload = {
           deliveryType: mapping.delivery_type,
           productSku: entitlement.sku,
