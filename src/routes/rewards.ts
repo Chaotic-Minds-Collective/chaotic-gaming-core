@@ -37,11 +37,11 @@ export async function registerRewardRoutes(app: FastifyInstance): Promise<void> 
               AND rq.available_at <= NOW()
               AND (
                 rq.status IN ('pending', 'failed')
-                OR (rq.status = 'processing' AND rq.lease_expires_at <= NOW())
+                OR (rq.status = 'processing' AND (rq.lease_expires_at IS NULL OR rq.lease_expires_at <= NOW()))
               )
             ORDER BY rq.available_at, rq.created_at
-            FOR UPDATE OF rq SKIP LOCKED
             LIMIT $2
+            FOR UPDATE OF rq SKIP LOCKED
          )
          UPDATE commerce.reward_queue rq
             SET status = 'processing',
@@ -93,8 +93,9 @@ export async function registerRewardRoutes(app: FastifyInstance): Promise<void> 
         status: string;
         attempts: number;
         claimed_by_principal_id: string | null;
+        lease_expires_at: Date | null;
       }>(
-        `SELECT id, status, attempts, claimed_by_principal_id
+        `SELECT id, status, attempts, claimed_by_principal_id, lease_expires_at
            FROM commerce.reward_queue
           WHERE id = $1 AND server_id = $2
           FOR UPDATE`,
@@ -109,9 +110,14 @@ export async function registerRewardRoutes(app: FastifyInstance): Promise<void> 
         await client.query("COMMIT");
         return reply.code(202).send({ data: { accepted: true, duplicate: true, rewardId: reward.id }, requestId: request.id });
       }
-      if (reward.status !== "processing" || reward.claimed_by_principal_id !== actorId) {
+      if (
+        reward.status !== "processing"
+        || reward.claimed_by_principal_id !== actorId
+        || !reward.lease_expires_at
+        || reward.lease_expires_at.getTime() <= Date.now()
+      ) {
         await client.query("ROLLBACK");
-        return reply.code(409).send({ error: { code: "REWARD_LEASE_INVALID", message: "This service does not hold the active lease for the reward." } });
+        return reply.code(409).send({ error: { code: "REWARD_LEASE_INVALID", message: "This service does not hold an active lease for the reward." } });
       }
 
       if (body.data.outcome === "delivered") {
