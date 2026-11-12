@@ -17,6 +17,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     publicServer: randomUUID(),
     privateServer: randomUUID(),
     userPrincipal: randomUUID(),
+    otherPrincipal: randomUUID(),
     servicePrincipal: randomUUID(),
     product: randomUUID(),
     entitlement: randomUUID(),
@@ -45,6 +46,8 @@ test("public server listing hides unlisted servers and reward workers use leased
 
     await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.userPrincipal]);
     await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.userPrincipal, username]);
+    await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.otherPrincipal]);
+    await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.otherPrincipal, "test_other_" + suffix.slice(0, 12)]);
     await pool.query(
       "INSERT INTO core.linked_accounts (id, principal_id, provider, external_id, external_username, verified_at) VALUES ($1, $2, 'steam', $3, 'test-steam-user', NOW())",
       [ids.linkedAccount, ids.userPrincipal, linkedExternalId]
@@ -133,6 +136,19 @@ test("public server listing hides unlisted servers and reward workers use leased
       "openid.signed": "op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle",
       "openid.sig": "synthetic-signature",
     };
+    const otherSession = await issueSession(ids.otherPrincipal, {
+      headers: { "user-agent": "core-integration-test-other" },
+      ip: "127.0.0.1",
+    });
+    const crossAccountAttempt = await app.inject({
+      method: "POST",
+      url: "/auth/linked-accounts/steam",
+      headers: { authorization: "Bearer " + otherSession.token },
+      payload: { state: steamState, assertion: steamAssertion },
+    });
+    assert.equal(crossAccountAttempt.statusCode, 409);
+    assert.equal(crossAccountAttempt.json().error.code, "STEAM_STATE_INVALID");
+
     globalThis.fetch = async () => new Response("ns:http://specs.openid.net/auth/2.0\\nis_valid:true\\n", { status: 200 });
     const steamLinkResponse = await app.inject({
       method: "POST",
@@ -198,7 +214,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     assert.equal(stored.rows[0].attempts, 1);
   } finally {
     await pool.query("DELETE FROM operations.audit_logs WHERE actor_principal_id = ANY($1::uuid[]) OR resource_id = ANY($2::text[])", [
-      [ids.servicePrincipal, ids.userPrincipal],
+      [ids.servicePrincipal, ids.userPrincipal, ids.otherPrincipal],
       [ids.publicServer, ids.privateServer, ids.reward, steamExternalId],
     ]);
     await pool.query("DELETE FROM commerce.reward_attempts WHERE reward_id = $1", [ids.reward]);
@@ -207,15 +223,15 @@ test("public server listing hides unlisted servers and reward workers use leased
     await pool.query("DELETE FROM core.linked_accounts WHERE provider = 'steam' AND external_id IN ($1, $2)", ["76561198000000000", steamExternalId]);
     await pool.query("DELETE FROM core.identity_assertion_nonces WHERE provider = 'steam' AND external_id = $1", [steamExternalId]);
     await pool.query("DELETE FROM core.identity_link_challenges WHERE principal_id = $1", [ids.userPrincipal]);
-    await pool.query("DELETE FROM core.auth_sessions WHERE principal_id = $1", [ids.userPrincipal]);
+    await pool.query("DELETE FROM core.auth_sessions WHERE principal_id = ANY($1::uuid[])", [[ids.userPrincipal, ids.otherPrincipal]]);
     await pool.query("DELETE FROM commerce.order_items WHERE product_id = $1", [ids.product]);
     await pool.query("DELETE FROM commerce.orders WHERE principal_id = $1", [ids.userPrincipal]);
     await pool.query("DELETE FROM commerce.products WHERE id = $1", [ids.product]);
     await pool.query("DELETE FROM core.service_credentials WHERE principal_id = $1", [ids.servicePrincipal]);
     await pool.query("DELETE FROM core.principal_role_assignments WHERE principal_id = $1", [ids.servicePrincipal]);
     await pool.query("DELETE FROM core.service_accounts WHERE principal_id = $1", [ids.servicePrincipal]);
-    await pool.query("DELETE FROM core.users WHERE principal_id = $1", [ids.userPrincipal]);
-    await pool.query("DELETE FROM core.principals WHERE id = ANY($1::uuid[])", [[ids.userPrincipal, ids.servicePrincipal]]);
+    await pool.query("DELETE FROM core.users WHERE principal_id = ANY($1::uuid[])", [[ids.userPrincipal, ids.otherPrincipal]]);
+    await pool.query("DELETE FROM core.principals WHERE id = ANY($1::uuid[])", [[ids.userPrincipal, ids.otherPrincipal, ids.servicePrincipal]]);
     await pool.query("DELETE FROM operations.server_heartbeats WHERE server_id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
     await pool.query("DELETE FROM core.servers WHERE id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
     await pool.query("DELETE FROM core.clusters WHERE id = $1", [ids.cluster]);
