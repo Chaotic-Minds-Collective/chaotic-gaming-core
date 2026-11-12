@@ -8,12 +8,12 @@ export async function registerServerRoutes(app: FastifyInstance): Promise<void> 
     const result = await pool.query(
       `SELECT s.id, s.name, s.game_key AS "gameKey", c.name AS "clusterName",
               s.status AS "configuredStatus",
-              s.is_listed AS "isListed",
-              CASE WHEN s.is_listed THEN s.public_hostname ELSE NULL END AS "publicHostname",
-              CASE WHEN s.is_listed THEN s.game_port ELSE NULL END AS "gamePort",
-              CASE WHEN s.is_listed THEN s.query_port ELSE NULL END AS "queryPort",
-              CASE WHEN s.is_listed THEN s.max_players ELSE NULL END AS "maxPlayers",
-              CASE WHEN s.is_listed THEN s.map_name ELSE NULL END AS "mapName",
+              TRUE AS "isListed",
+              s.public_hostname AS "publicHostname",
+              s.game_port AS "gamePort",
+              s.query_port AS "queryPort",
+              s.max_players AS "maxPlayers",
+              s.map_name AS "mapName",
               COALESCE(
                 CASE
                   WHEN hb.received_at < NOW() - INTERVAL '5 minutes' THEN FALSE
@@ -39,6 +39,7 @@ export async function registerServerRoutes(app: FastifyInstance): Promise<void> 
          ) hb ON TRUE
         WHERE s.environment = 'production'
           AND s.status <> 'deleted'
+          AND s.is_listed = TRUE
         ORDER BY s.game_key, c.name, s.name`
     );
 
