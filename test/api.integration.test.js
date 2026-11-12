@@ -188,9 +188,9 @@ test("public server listing hides unlisted servers and reward workers use leased
     assert.equal(stored.rows[0].status, "delivered");
     assert.equal(stored.rows[0].attempts, 1);
   } finally {
-    await pool.query("DELETE FROM operations.audit_logs WHERE actor_principal_id = $1 OR resource_id = ANY($2::text[])", [
-      ids.servicePrincipal,
-      [ids.publicServer, ids.privateServer, ids.reward],
+    await pool.query("DELETE FROM operations.audit_logs WHERE actor_principal_id = ANY($1::uuid[]) OR resource_id = ANY($2::text[])", [
+      [ids.servicePrincipal, ids.userPrincipal],
+      [ids.publicServer, ids.privateServer, ids.reward, steamExternalId],
     ]);
     await pool.query("DELETE FROM commerce.reward_attempts WHERE reward_id = $1", [ids.reward]);
     await pool.query("DELETE FROM commerce.reward_queue WHERE id = $1", [ids.reward]);
