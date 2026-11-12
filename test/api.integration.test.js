@@ -130,7 +130,7 @@ test("public server listing hides unlisted servers and reward workers use leased
       "openid.op_endpoint": "https://steamcommunity.com/openid/login",
       "openid.claimed_id": "https://steamcommunity.com/openid/id/" + steamExternalId,
       "openid.identity": "https://steamcommunity.com/openid/id/" + steamExternalId,
-      "openid.return_to": "https://www.chaoticmindsgaming.com/api/account/link/steam/callback?state=" + "s".repeat(43),
+      "openid.return_to": "https://www.chaoticmindsgaming.com/api/account/link/steam/callback?state=" + steamState,
       "openid.response_nonce": nonceTimestamp + "synthetic-nonce",
       "openid.assoc_handle": "synthetic-association",
       "openid.signed": "op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle",
