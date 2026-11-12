@@ -1,25 +1,22 @@
 # Chaotic Gaming Core
 
-Shared Chaotic Gaming platform core: player identity, authentication, scoped authorization, REST APIs, PostgreSQL migrations, commerce, events and integrations.
+The shared platform backend for Chaotic Gaming. This repository owns player identity, authentication, scoped authorization, platform APIs, durable events and integrations.
 
-## Platform architecture
+## Architecture
+- TypeScript / Node.js modular monolith.
+- PostgreSQL as the system of record.
+- REST API for the website, Glitch Bot and game adapters.
+- Database-backed transactional outbox for reliable asynchronous events.
+- Separate game-specific modules and schemas; no direct database credentials in bots or game plugins.
 
-- Node.js 22+ and TypeScript
-- Fastify REST API
-- PostgreSQL with versioned SQL migrations
-- Modular monolith with separate domain and game schemas
-- Transactional event outbox
-- Independent website, Discord bot and game adapters using authenticated APIs
+## Development
+<!-- coderabbit-ai-generated:v1 -->
 
-## Plugin ecosystem
+<!-- coderabbit-ai-generated-section:v1:d83ff37a1642a45c4a8f53f3cb59a97e39ac8e8d53e20c437e5eeb4db1713baa -->
 
-The Core owns the shared plugin lifecycle and registry foundation. Game-specific plugins remain independently versioned and communicate with Core through scoped service identities; they never receive database credentials.
+1. Use Node.js 22 or newer.
 
-See the [central plugin catalogue and ecosystem documentation](https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs/tree/main/plugins).
-
-## Local development
-
-1. Install Node.js 22 or newer.
+<!-- /coderabbit-ai-generated:v1 -->
 2. Copy `.env.example` to `.env` and set `DATABASE_URL`.
 3. Set `STEAM_OPENID_RETURN_URL` to the website's exact Steam callback URL.
 4. Run `npm install`.
@@ -87,3 +84,16 @@ npm run admin:grant -- <PLAYER_PRINCIPAL_UUID>
 ```
 
 The player principal UUID is displayed on the signed-in account page. See docs/commerce/catalog-management.md for the product, price and per-game delivery mapping API. Do not configure delivery mappings until the target game adapter supports the declared delivery type.
+3. Run `npm install`.
+4. Run `npm run db:migrate` to apply SQL migrations.
+5. Run `npm run dev`.
+
+## Security
+- Never commit secrets or real credentials.
+- Use TLS for database and service connections.
+- Store only hashes of session/service tokens.
+- Use least-privilege service identities and scoped permissions.
+- Keep production credentials and data out of development/test environments.
+
+## Current scope
+The initial migration establishes identity, linked accounts, sessions, RBAC, service credentials, audit logs, an event outbox and idempotency records. Authentication flows and business APIs are added in subsequent milestones.

@@ -13,7 +13,28 @@ const schema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
   STRIPE_SUCCESS_URL: z.string().url().optional(),
   STRIPE_CANCEL_URL: z.string().url().optional(),
+  DISCORD_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  DISCORD_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+  DISCORD_OAUTH_REDIRECT_URL: z.string().url().optional(),
+  DISCORD_LINK_COMPLETE_URL: z.string().url().optional(),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info")
 });
 
-export const config = schema.parse(process.env);
+const parsed = schema.parse(process.env);
+const discordOAuthConfigured = Boolean(
+  parsed.DISCORD_OAUTH_CLIENT_ID || parsed.DISCORD_OAUTH_CLIENT_SECRET || parsed.DISCORD_OAUTH_REDIRECT_URL
+);
+if (discordOAuthConfigured && !(
+  parsed.DISCORD_OAUTH_CLIENT_ID &&
+  parsed.DISCORD_OAUTH_CLIENT_SECRET &&
+  parsed.DISCORD_OAUTH_REDIRECT_URL
+)) {
+  throw new Error("DISCORD_OAUTH_CLIENT_ID, DISCORD_OAUTH_CLIENT_SECRET and DISCORD_OAUTH_REDIRECT_URL must be configured together.");
+}
+if (parsed.NODE_ENV === "production" &&
+    ((parsed.DISCORD_OAUTH_REDIRECT_URL && !parsed.DISCORD_OAUTH_REDIRECT_URL.startsWith("https://")) ||
+     (parsed.DISCORD_LINK_COMPLETE_URL && !parsed.DISCORD_LINK_COMPLETE_URL.startsWith("https://"))) ) {
+  throw new Error("Discord OAuth URLs must use HTTPS in production.");
+}
+
+export const config = parsed;
