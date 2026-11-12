@@ -67,3 +67,13 @@ Run administration commands only from a trusted environment with a non-productio
 ## Status
 
 Foundation implementation is committed and CI-tested. External identity linking beyond Steam, account recovery/email verification, payment-provider integration, actual game reward fulfillment, artifact signing/sandboxing and production operations remain incomplete. No production database migrations have been applied and no production service has been deployed.
+
+## Test-mode checkout
+
+Stripe Checkout is disabled by default and accepts test-mode secret keys only. To enable it in an isolated development or staging environment, configure PAYMENTS_ENABLED=true, a Stripe test secret (sk_test_), a webhook signing secret (whsec_), and HTTPS success/cancel URLs. Live keys are rejected by the application.
+
+- GET /commerce/checkout/status reports whether test checkout is configured.
+- POST /commerce/orders/:orderId/checkout creates or reuses a Stripe test Checkout session for the authenticated order owner.
+- POST /webhooks/stripe verifies the raw-body signature, checks amount and currency, protects against duplicate events, and grants entitlements only after a verified paid event.
+
+The Core API holds the Stripe secret. The website receives only a validated checkout.stripe.com URL. Do not put Stripe credentials in the website environment, commit them, or configure live-mode keys. See docs/commerce/stripe-test-mode.md for setup and webhook details.
