@@ -19,7 +19,7 @@ Shared Chaotic Gaming platform core: player identity, authentication, scoped aut
 - Discord access tokens are used only to fetch the verified user identity, then revoked best-effort; they are never stored.
 - External accounts already linked to another Chaotic Gaming principal cannot be silently reassigned or merged.
 
-To enable Discord linking, configure `DISCORD_OAUTH_CLIENT_ID`, `DISCORD_OAUTH_CLIENT_SECRET` and `DISCORD_OAUTH_REDIRECT_URI`. Register the exact redirect URI in the Discord Developer Portal. The website callback page must pass the returned `code`, `state` and `iss` to `POST /auth/linked-accounts/discord` using the signed-in player's Core session.
+To enable Discord linking, configure `DISCORD_OAUTH_CLIENT_ID`, `DISCORD_OAUTH_CLIENT_SECRET` and `DISCORD_OAUTH_REDIRECT_URI`. Register the exact redirect URI in the Discord Developer Portal. The website server callback route at `/api/account/link/discord/callback` forwards the returned `code`, `state` and `iss` to `POST /auth/linked-accounts/discord` using the signed-in player's Core session.
 
 ## Plugin ecosystem
 
