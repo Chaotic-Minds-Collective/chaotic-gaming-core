@@ -44,6 +44,8 @@ jobs:
         run: |
           npm audit --json > npm-audit.json || true
           node -e 'const fs=require("node:fs"); const report=JSON.parse(fs.readFileSync("npm-audit.json","utf8")); console.log(JSON.stringify(report.vulnerabilities ?? {}, null, 2));'
+      - name: Fail on high or critical dependency vulnerabilities
+        run: npm audit --audit-level=high
       - name: Apply every SQL migration to a fresh PostgreSQL database
         run: npm run db:migrate
       - name: Build TypeScript API
