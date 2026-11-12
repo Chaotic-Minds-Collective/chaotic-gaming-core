@@ -1,29 +1,43 @@
 name: Core CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  push:
+    branches: [main, "feat/**"]
 
 permissions:
   contents: read
 
-concurrency:
-  group: core-ci-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  validate:
+  build-and-migrate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chaotic_gaming
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chaotic_gaming"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chaotic_gaming
+      DATABASE_SSL: "false"
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
       - name: Install dependencies
-        run: npm install
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Build
+        run: npm install --no-audit --no-fund
+      - name: Compile TypeScript
         run: npm run build
+      - name: Apply database migrations to disposable PostgreSQL
+        run: npm run db:migrate
