@@ -15,17 +15,18 @@ try {
   );
   if (!principal.rowCount) throw new Error("Player principal not found.");
 
-  const role = await client.query("SELECT id FROM core.roles WHERE role_key = 'platform_admin'");
-  if (!role.rows[0]) throw new Error("platform_admin role is not seeded.");
+  const role = await client.query<{ id: string }>("SELECT id FROM core.roles WHERE role_key = 'platform_admin'");
+  const roleId = role.rows[0]?.id;
+  if (!roleId) throw new Error("platform_admin role is not seeded.");
 
   const existing = await client.query(
     "SELECT 1 FROM core.principal_role_assignments WHERE principal_id = $1 AND role_id = $2 AND scope_type = 'platform' AND scope_id IS NULL AND (expires_at IS NULL OR expires_at > NOW())",
-    [principalId, role.rows[0].id]
+    [principalId, roleId]
   );
   if (!existing.rowCount) {
     await client.query(
       "INSERT INTO core.principal_role_assignments (principal_id, role_id, scope_type, scope_id) VALUES ($1, $2, 'platform', NULL)",
-      [principalId, role.rows[0].id]
+      [principalId, roleId]
     );
     await client.query(
       "INSERT INTO operations.audit_logs (actor_principal_id, action, resource_type, resource_id, outcome, metadata) VALUES ($1, 'platform.admin.granted', 'principal', $1, 'success', '{}'::jsonb)",

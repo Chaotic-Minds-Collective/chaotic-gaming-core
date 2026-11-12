@@ -100,7 +100,8 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
         "INSERT INTO commerce.products (sku, name, description, product_type, status) VALUES ($1, $2, $3, $4, $5) RETURNING id",
         [parsed.data.sku, parsed.data.name, parsed.data.description ?? null, parsed.data.productType, parsed.data.status]
       );
-      const productId = product.rows[0].id;
+      const productId = product.rows[0]?.id;
+      if (!productId) throw new Error("Product insert returned no identifier.");
       await client.query(
         "INSERT INTO commerce.product_prices (product_id, currency, amount_minor) VALUES ($1, $2, $3)",
         [productId, parsed.data.currency, parsed.data.amountMinor]
