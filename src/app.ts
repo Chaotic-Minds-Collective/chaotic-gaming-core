@@ -5,6 +5,7 @@ import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCommerceRoutes } from "./routes/commerce.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIntegrationRoutes } from "./routes/integrations.js";
+import { registerServerRoutes } from "./routes/servers.js";
 
 export function buildApp() {
   const app = Fastify({
@@ -25,7 +26,7 @@ export function buildApp() {
 
   app.get("/", async () => ({
     name: "Chaotic Gaming Core API",
-    version: "0.4.0",
+    version: "0.5.0",
     docs: "https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs"
   }));
 
@@ -33,5 +34,6 @@ export function buildApp() {
   void registerAuthRoutes(app);
   void registerIntegrationRoutes(app);
   void registerCommerceRoutes(app);
+  void registerServerRoutes(app);
   return app;
 }
