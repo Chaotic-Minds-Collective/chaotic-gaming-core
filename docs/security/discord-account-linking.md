@@ -1,5 +1,7 @@
 <!-- coderabbit-ai-generated:v1 -->
 
+<!-- coderabbit-ai-generated-section:v1:4e7107669502d1fe7c39eb68f9630e523a760ed4e8c313ad6e34be7d0022a70d -->
+
 <!-- coderabbit-ai-generated-section:v1:32a478b0305f35b83bdcd546ed718dfbb825bbbef9f63c84406e93b156d3c020 -->
 
 # Discord Account Linking
@@ -10,7 +12,7 @@
 
 <!-- coderabbit-ai-generated-section:v1:c8ba84b956418353425c99977265ae320f5e23f5db575c7f677baf947e0dc338 -->
 
-2. The website calls `POST /auth/discord-link/challenge` from the player's browser with their Core bearer session. The website and Core must be **same-site** (the same scheme and registrable domain) for the browser to retain the `SameSite=Lax` binding cookie. For cross-origin requests within that site, use `credentials: "include"` and ensure the deployment allows credentialed CORS requests from the website origin. Credentials alone do not allow a cross-site fetch response to set this cookie; this implementation provides no cross-site challenge flow. Server-to-server challenge creation does not establish browser ownership.
+2. Create a challenge using one of the supported browser integration paths below. Core requires an active Core bearer session on `POST /auth/discord-link/challenge`; the browser must receive the binding cookie and later send it to the callback on the same public host.
 
 <!-- /coderabbit-ai-generated:v1 -->
 3. Core stores a SHA-256 hash of the random state combined with a separate random browser binding, bound to that principal and expiring in 10 minutes. The binding is sent only in an HttpOnly, SameSite=Lax cookie; production uses a Secure, host-prefixed cookie.
@@ -19,9 +21,26 @@
 6. Core requires the initiating browser cookie before consuming the matching state exactly once, exchanges the authorization code server-side, fetches `/users/@me`, and stores the verified Discord snowflake.
 7. The short-lived OAuth access token is discarded and is never stored.
 
+## Website integration with server-side bearer tokens
+
+For a website that keeps Core bearer tokens on its server, expose both linking routes through the **same public HTTPS website host**. For example, use `https://www.example.com/auth/discord-link/challenge` and `https://www.example.com/auth/discord-link/callback`, forwarding both paths to Core. This is a deployment contract supported by the current Core handlers; it does not establish that a website implementation or deployment already implements it.
+
+1. The signed-in browser posts to the website's challenge route using its website session. The website handler must authenticate that session, apply its CSRF/origin protections, obtain that user's Core bearer token server-side, and forward the request to Core with `Authorization: Bearer <token>`. Never accept a caller-selected principal or token as a substitute for the authenticated website session.
+2. Relay Core's response body and `Set-Cookie` headers to the browser without changing the binding cookie attributes. Preserve separate `Set-Cookie` headers if the website also sets session cookies. Preserve `Cache-Control: no-store`. The browser stores `__Host-discord-link` for `www.example.com` in production, with `Secure`, `HttpOnly`, `SameSite=Lax`, `Path=/`, and no `Domain`. Browser JavaScript receives the authorization URL, but no bearer token or binding value.
+3. Navigate the browser to the returned authorization URL. Set `DISCORD_OAUTH_REDIRECT_URL` to `https://www.example.com/auth/discord-link/callback` and register that exact URL with Discord. It must return to the same public host that delivered the challenge response, even if Core runs on another internal host.
+4. Forward the callback query and browser `Cookie` header to Core's callback route. Relay Core's status, body or redirect, and `Set-Cookie` clearing header back to the browser. The callback handler uses the binding cookie and stored challenge; it does not require a bearer header. Do not complete the callback on a different Core API hostname.
+
+A website-host challenge proxy alone is insufficient when Discord redirects to a separate Core host: the browser will not send the website's host-only cookie there. Both public routes above must be implemented before enabling this integration. Keep tokens server-side and preserve Core's cookie and single-use challenge checks. Do not log sensitive query strings or cookies at the proxy.
+
+## Direct browser integration
+
+A client that already holds a Core bearer session can call Core directly from the browser. The client and Core must be **same-site** (the same scheme and registrable domain) for the browser to retain the `SameSite=Lax` binding cookie. For cross-origin requests within that site, use `credentials: "include"` and configure credentialed CORS for the specific client origin at the deployment boundary; Core does not currently register a CORS plugin. The callback must return to the same public Core host that issued the cookie. Credentials alone do not allow a cross-site fetch response to set this cookie. This path is not suitable for a website that keeps bearer tokens exclusively server-side.
+
 ## Discord Developer Portal
 Register the exact redirect URL:
-`https://<CORE_API_HOST>/auth/discord-link/callback`
+`https://<PUBLIC_LINK_HOST>/auth/discord-link/callback`
+
+`PUBLIC_LINK_HOST` is the website host for the server-side-token integration above, or the public Core host for direct browser integration.
 
 Configure these Core environment variables together:
 - `DISCORD_OAUTH_CLIENT_ID`
