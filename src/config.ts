@@ -8,30 +8,28 @@ const schema = z.object({
   DATABASE_URL: z.string().url().optional(),
   DATABASE_SSL: z.string().default("false").transform((value) => value === "true"),
   STEAM_OPENID_RETURN_URL: z.string().url().optional(),
-  DISCORD_OAUTH_CLIENT_ID: z.string().regex(/^\d{17,20}$/).optional(),
-  DISCORD_OAUTH_CLIENT_SECRET: z.string().min(1).max(256).optional(),
-  DISCORD_OAUTH_REDIRECT_URI: z.string().url().optional(),
+  DISCORD_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+  DISCORD_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+  DISCORD_OAUTH_REDIRECT_URL: z.string().url().optional(),
+  DISCORD_LINK_COMPLETE_URL: z.string().url().optional(),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info")
 });
 
-export const config = schema.parse(process.env);
+const parsed = schema.parse(process.env);
+const discordOAuthConfigured = Boolean(
+  parsed.DISCORD_OAUTH_CLIENT_ID || parsed.DISCORD_OAUTH_CLIENT_SECRET || parsed.DISCORD_OAUTH_REDIRECT_URL
+);
+if (discordOAuthConfigured && !(
+  parsed.DISCORD_OAUTH_CLIENT_ID &&
+  parsed.DISCORD_OAUTH_CLIENT_SECRET &&
+  parsed.DISCORD_OAUTH_REDIRECT_URL
+)) {
+  throw new Error("DISCORD_OAUTH_CLIENT_ID, DISCORD_OAUTH_CLIENT_SECRET and DISCORD_OAUTH_REDIRECT_URL must be configured together.");
+}
+if (parsed.NODE_ENV === "production" &&
+    ((parsed.DISCORD_OAUTH_REDIRECT_URL && !parsed.DISCORD_OAUTH_REDIRECT_URL.startsWith("https://")) ||
+     (parsed.DISCORD_LINK_COMPLETE_URL && !parsed.DISCORD_LINK_COMPLETE_URL.startsWith("https://"))) ) {
+  throw new Error("Discord OAuth URLs must use HTTPS in production.");
+}
 
-const discordOAuthValues = [
-  config.DISCORD_OAUTH_CLIENT_ID,
-  config.DISCORD_OAUTH_CLIENT_SECRET,
-  config.DISCORD_OAUTH_REDIRECT_URI,
-];
-const discordOAuthConfigured = discordOAuthValues.every(Boolean);
-if (discordOAuthValues.some(Boolean) && !discordOAuthConfigured) {
-  throw new Error("DISCORD_OAUTH_CLIENT_ID, DISCORD_OAUTH_CLIENT_SECRET and DISCORD_OAUTH_REDIRECT_URI must be configured together.");
-}
-if (discordOAuthConfigured && config.DISCORD_OAUTH_REDIRECT_URI) {
-  const redirect = new URL(config.DISCORD_OAUTH_REDIRECT_URI);
-  const localHosts = ["localhost", "127.0.0.1", "::1"];
-  if (redirect.protocol !== "https:" && !(redirect.protocol === "http:" && localHosts.includes(redirect.hostname))) {
-    throw new Error("DISCORD_OAUTH_REDIRECT_URI must use HTTPS except for loopback development URLs.");
-  }
-  if (redirect.username || redirect.password || redirect.hash) {
-    throw new Error("DISCORD_OAUTH_REDIRECT_URI must not contain credentials or a fragment.");
-  }
-}
+export const config = parsed;
