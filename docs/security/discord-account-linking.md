@@ -1,12 +1,16 @@
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:32a478b0305f35b83bdcd546ed718dfbb825bbbef9f63c84406e93b156d3c020 -->
+
 # Discord Account Linking
 
 ## Flow
 1. The player signs in to a Chaotic Gaming account.
-2. The website calls `POST /auth/discord-link/challenge` with the player's Core bearer session.
-3. Core stores a SHA-256 hash of a random one-time state bound to that principal, expiring in 10 minutes.
+2. The website calls `POST /auth/discord-link/challenge` from the player's browser with their Core bearer session, retaining the response cookie (use credentials when fetching across origins). Server-to-server challenge creation does not establish browser ownership.
+3. Core stores a SHA-256 hash of the random state combined with a separate random browser binding, bound to that principal and expiring in 10 minutes. The binding is sent only in an HttpOnly, SameSite=Lax cookie; production uses a Secure, host-prefixed cookie.
 4. The browser redirects to the returned Discord OAuth authorization URL using the `identify` scope only.
 5. Discord redirects to `GET /auth/discord-link/callback`.
-6. Core consumes the state exactly once, exchanges the authorization code server-side, fetches `/users/@me`, and stores the verified Discord snowflake.
+6. Core requires the initiating browser cookie before consuming the matching state exactly once, exchanges the authorization code server-side, fetches `/users/@me`, and stores the verified Discord snowflake.
 7. The short-lived OAuth access token is discarded and is never stored.
 
 ## Discord Developer Portal
@@ -29,3 +33,11 @@ Use only the `identify` OAuth scope. No bot permissions or guild membership scop
 - A Discord account already linked to another Core account cannot be claimed.
 - Discord server roles do not grant platform/game administrator permissions.
 - Do not log OAuth codes, access tokens, client secrets or raw state values.
+
+## Browser requirements and retries
+The callback must use the same Core host that issued the cookie. Starting another challenge replaces the browser cookie, so only the newest flow can complete in that browser. Existing challenges created before browser binding was introduced must be restarted. Missing or mismatched cookies cannot consume a challenge or write a link. The cookie is cleared after a valid challenge is consumed.
+
+A Discord verification failure requires starting a new challenge. This preserves single-use behavior even when a token exchange may have succeeded before a network failure.
+
+
+<!-- /coderabbit-ai-generated:v1 -->

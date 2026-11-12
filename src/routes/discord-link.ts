@@ -11,6 +11,16 @@ const callbackSchema = z.object({
   state: z.string().regex(/^[A-Za-z0-9_-]{43}$/)
 });
 
+const bindingCookieName = config.NODE_ENV === "production" ? "__Host-discord-link" : "discord-link";
+
+function bindingCookie(value: string, maxAge: number): string {
+  return `${bindingCookieName}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${config.NODE_ENV === "production" ? "; Secure" : ""}`;
+}
+
+function boundStateHash(state: string, binding: string): string {
+  return createHash("sha256").update(`${state}:${binding}`).digest("hex");
+}
+
 function isDiscordOAuthConfigured(): boolean {
   return Boolean(
     config.DISCORD_OAUTH_CLIENT_ID &&
@@ -43,7 +53,8 @@ export async function registerDiscordLinkRoutes(app: FastifyInstance): Promise<v
     if (!principalId) return;
 
     const state = randomBytes(32).toString("base64url");
-    const stateHash = createHash("sha256").update(state).digest("hex");
+    const binding = randomBytes(32).toString("base64url");
+    const stateHash = boundStateHash(state, binding);
     const result = await pool.query(
       `INSERT INTO core.identity_link_challenges (provider, state_hash, principal_id, expires_at)
        VALUES ('discord', $1, $2, NOW() + INTERVAL '10 minutes')
@@ -58,6 +69,7 @@ export async function registerDiscordLinkRoutes(app: FastifyInstance): Promise<v
     authorizationUrl.searchParams.set("scope", "identify");
     authorizationUrl.searchParams.set("state", state);
 
+    reply.header("Set-Cookie", bindingCookie(binding, 600));
     return reply.code(201).send({
       data: {
         authorizationUrl: authorizationUrl.toString(),
@@ -80,7 +92,14 @@ export async function registerDiscordLinkRoutes(app: FastifyInstance): Promise<v
       return reply.code(400).send({ error: { code: "INVALID_DISCORD_CALLBACK", message: "A valid Discord authorization code and state are required." } });
     }
 
-    const stateHash = createHash("sha256").update(parsed.data.state).digest("hex");
+    const bindings = (request.headers.cookie ?? "").split(";")
+      .map((cookie) => cookie.trim())
+      .filter((cookie) => cookie.startsWith(`${bindingCookieName}=`));
+    const binding = bindings[0]?.slice(bindingCookieName.length + 1);
+    if (bindings.length !== 1 || !binding || !/^[A-Za-z0-9_-]{43}$/.test(binding)) {
+      return reply.code(409).send({ error: { code: "DISCORD_STATE_INVALID", message: "Start Discord linking in this browser before completing it." } });
+    }
+    const stateHash = boundStateHash(parsed.data.state, binding);
     const challenge = await pool.query<{ principal_id: string }>(
       `UPDATE core.identity_link_challenges
           SET consumed_at = NOW()
@@ -95,6 +114,8 @@ export async function registerDiscordLinkRoutes(app: FastifyInstance): Promise<v
     if (!principalId) {
       return reply.code(409).send({ error: { code: "DISCORD_STATE_INVALID", message: "The Discord link session is invalid, expired or already used." } });
     }
+
+    reply.header("Set-Cookie", bindingCookie("", 0));
 
     let identity: { discordId: string; username: string };
     try {

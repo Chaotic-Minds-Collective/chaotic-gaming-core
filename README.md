@@ -10,7 +10,13 @@ The shared platform backend for Chaotic Gaming. This repository owns player iden
 - Separate game-specific modules and schemas; no direct database credentials in bots or game plugins.
 
 ## Development
-1. Use Node.js 20 or newer.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d83ff37a1642a45c4a8f53f3cb59a97e39ac8e8d53e20c437e5eeb4db1713baa -->
+
+1. Use Node.js 22 or newer.
+
+<!-- /coderabbit-ai-generated:v1 -->
 2. Copy `.env.example` to `.env` and set `DATABASE_URL`.
 3. Run `npm install`.
 4. Run `npm run db:migrate` to apply SQL migrations.

@@ -110,6 +110,10 @@ test("public server listing hides unlisted servers and reward workers use leased
     });
     assert.deepEqual(unknownIdentityResponse.json().data, { linked: false });
 
+    // The resolution fixture already owns a Steam link. Unlink it before
+    // exercising a new verified link, preserving one active link per provider.
+    await pool.query("UPDATE core.linked_accounts SET unlinked_at = NOW() WHERE id = $1", [ids.linkedAccount]);
+
     const playerSession = await issueSession(ids.userPrincipal, {
       headers: { "user-agent": "core-integration-test" },
       ip: "127.0.0.1",
@@ -192,7 +196,7 @@ test("public server listing hides unlisted servers and reward workers use leased
       method: "POST",
       url: "/auth/linked-accounts/steam",
       headers: { authorization: "Bearer " + playerSession.token },
-      payload: steamAssertion,
+      payload: { state: steamState, assertion: steamAssertion },
     });
     assert.equal(steamReplayResponse.statusCode, 409);
     assert.equal(steamReplayResponse.json().error.code, "STEAM_STATE_INVALID");
