@@ -67,6 +67,26 @@ export async function registerCommerceRoutes(app: FastifyInstance): Promise<void
     return { data: result.rows, requestId: request.id };
   });
 
+  app.get("/account/orders", async (request, reply) => {
+    if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Order history is temporarily unavailable." } });
+    const principalId = await requirePrincipal(request, reply);
+    if (!principalId) return;
+
+    const result = await pool.query(
+      "SELECT o.id, o.status, o.currency, o.total_minor::text AS \"totalMinor\", " +
+      "o.created_at AS \"createdAt\", latest_payment.status AS \"paymentStatus\", " +
+      "COALESCE(json_agg(json_build_object('name', oi.name_snapshot, 'sku', oi.sku_snapshot, " +
+      "'quantity', oi.quantity, 'unitAmountMinor', oi.unit_amount_minor::text)) " +
+      "FILTER (WHERE oi.id IS NOT NULL), '[]'::json) AS items " +
+      "FROM commerce.orders o " +
+      "LEFT JOIN commerce.order_items oi ON oi.order_id = o.id " +
+      "LEFT JOIN LATERAL (SELECT status FROM commerce.payment_transactions WHERE order_id = o.id ORDER BY created_at DESC LIMIT 1) latest_payment ON TRUE " +
+      "WHERE o.principal_id = $1 GROUP BY o.id, latest_payment.status ORDER BY o.created_at DESC LIMIT 50",
+      [principalId]
+    );
+    return { data: result.rows, requestId: request.id };
+  });
+
   app.post("/commerce/orders", async (request, reply) => {
     if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Checkout is temporarily unavailable." } });
     const principalId = await requirePrincipal(request, reply);
