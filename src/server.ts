@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import helmet from "@fastify/helmet";
 import { config } from "./config.js";
 import { pool } from "./db/pool.js";
+import { registerGameRoutes } from "./routes/games.js";
 
 const app = Fastify({
   logger: { level: config.logLevel, redact: ["req.headers.authorization", "req.headers.cookie"] },
@@ -10,6 +11,7 @@ const app = Fastify({
 });
 
 await app.register(helmet);
+await registerGameRoutes(app);
 
 app.get("/health/live", async () => ({
   status: "ok",
