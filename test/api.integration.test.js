@@ -17,6 +17,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     publicServer: randomUUID(),
     privateServer: randomUUID(),
     userPrincipal: randomUUID(),
+    steamLinkPrincipal: randomUUID(),
     otherPrincipal: randomUUID(),
     servicePrincipal: randomUUID(),
     product: randomUUID(),
@@ -46,6 +47,8 @@ test("public server listing hides unlisted servers and reward workers use leased
 
     await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.userPrincipal]);
     await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.userPrincipal, username]);
+    await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.steamLinkPrincipal]);
+    await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.steamLinkPrincipal, "test_steam_link_" + suffix.slice(0, 12)]);
     await pool.query("INSERT INTO core.principals (id, principal_type, status) VALUES ($1, 'user', 'active')", [ids.otherPrincipal]);
     await pool.query("INSERT INTO core.users (principal_id, username) VALUES ($1, $2)", [ids.otherPrincipal, "test_other_" + suffix.slice(0, 12)]);
     await pool.query(
@@ -110,7 +113,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     });
     assert.deepEqual(unknownIdentityResponse.json().data, { linked: false });
 
-    const playerSession = await issueSession(ids.userPrincipal, {
+    const playerSession = await issueSession(ids.steamLinkPrincipal, {
       headers: { "user-agent": "core-integration-test" },
       ip: "127.0.0.1",
     });
@@ -206,7 +209,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     });
     assert.equal(resolvedSteamLink.statusCode, 200);
     assert.equal(resolvedSteamLink.json().data.linked, true);
-    assert.equal(resolvedSteamLink.json().data.principalId, ids.userPrincipal);
+    assert.equal(resolvedSteamLink.json().data.principalId, ids.steamLinkPrincipal);
 
     const claimResponse = await app.inject({
       method: "POST",
