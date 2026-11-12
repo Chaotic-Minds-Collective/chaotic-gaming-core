@@ -1,5 +1,6 @@
 import argon2 from "argon2";
 import type { FastifyInstance } from "fastify";
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { pool } from "../db.js";
 import { issueSession, requirePrincipal } from "../auth/session.js";
@@ -56,7 +57,7 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
         requestId: request.id
       });
     } catch (error) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => undefined);
       if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
         return reply.code(409).send({ error: { code: "ACCOUNT_EXISTS", message: "That username or email is already registered." } });
       }
@@ -124,11 +125,13 @@ export async function registerAuthRoutes(app: FastifyInstance): Promise<void> {
     if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Logout is temporarily unavailable." } });
     const authorization = request.headers.authorization;
     const match = authorization?.match(/^Bearer ([A-Za-z0-9_-]{40,})$/);
-    if (!match) return reply.code(204).send();
+    const token = match?.[1];
+    if (!token) return reply.code(204).send();
 
+    const tokenHash = createHash("sha256").update(token).digest("hex");
     await pool.query(
-      "UPDATE core.auth_sessions SET revoked_at = NOW() WHERE token_hash = encode(digest($1, 'sha256'), 'hex') AND revoked_at IS NULL",
-      [match[1]]
+      "UPDATE core.auth_sessions SET revoked_at = NOW() WHERE token_hash = $1 AND revoked_at IS NULL",
+      [tokenHash]
     );
     return reply.code(204).send();
   });

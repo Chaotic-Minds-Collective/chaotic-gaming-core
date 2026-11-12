@@ -20,12 +20,13 @@ export async function requireServicePermission(
 
   const authorization = request.headers.authorization;
   const match = authorization?.match(/^Bearer (cg_srv_[A-Za-z0-9_-]{40,})$/);
-  if (!match) {
+  const token = match?.[1];
+  if (!token) {
     await reply.code(401).send({ error: { code: "UNAUTHENTICATED", message: "A valid service credential is required." } });
     return null;
   }
 
-  const credentialHash = hashServiceToken(match[1]);
+  const credentialHash = hashServiceToken(token);
   const result = await pool.query<{ principal_id: string }>(
     `SELECT sa.principal_id
        FROM core.service_credentials sc

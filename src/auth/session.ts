@@ -39,11 +39,13 @@ export async function requirePrincipal(
 
   const authorization = request.headers.authorization;
   const match = authorization?.match(/^Bearer ([A-Za-z0-9_-]{40,})$/);
-  if (!match) {
+  const token = match?.[1];
+  if (!token) {
     await reply.code(401).send({ error: { code: "UNAUTHENTICATED", message: "A valid bearer token is required." } });
     return null;
   }
 
+  const tokenHash = hashToken(token);
   const result = await pool.query<{ principal_id: string }>(
     `SELECT s.principal_id
        FROM core.auth_sessions s
@@ -52,7 +54,7 @@ export async function requirePrincipal(
         AND s.revoked_at IS NULL
         AND s.expires_at > NOW()
         AND p.status = 'active'`,
-    [hashToken(match[1])]
+    [tokenHash]
   );
 
   const principalId = result.rows[0]?.principal_id;
@@ -63,7 +65,7 @@ export async function requirePrincipal(
 
   await pool.query(
     "UPDATE core.auth_sessions SET last_used_at = NOW() WHERE token_hash = $1",
-    [hashToken(match[1])]
+    [tokenHash]
   );
   return principalId;
 }
