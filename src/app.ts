@@ -1,5 +1,7 @@
 import Fastify from "fastify";
+import rateLimit from "@fastify/rate-limit";
 import { config } from "./config.js";
+import { registerAuthRoutes } from "./routes/auth.js";
 import { registerHealthRoutes } from "./routes/health.js";
 
 export function buildApp() {
@@ -8,6 +10,8 @@ export function buildApp() {
     bodyLimit: 1_048_576,
     trustProxy: false
   });
+
+  app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
 
   app.addHook("onSend", async (_request, reply, payload) => {
     reply.header("X-Content-Type-Options", "nosniff");
@@ -19,10 +23,11 @@ export function buildApp() {
 
   app.get("/", async () => ({
     name: "Chaotic Gaming Core API",
-    version: "0.1.0",
+    version: "0.2.0",
     docs: "https://github.com/Chaotic-Minds-Collective/chaotic-gaming-docs"
   }));
 
   void registerHealthRoutes(app);
+  void registerAuthRoutes(app);
   return app;
 }

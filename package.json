@@ -1,6 +1,6 @@
 {
   "name": "@chaotic-gaming/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
@@ -12,6 +12,8 @@
     "db:migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
+    "@fastify/rate-limit": "^10.2.1",
+    "argon2": "^0.41.1",
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
     "pg": "^8.13.1",
