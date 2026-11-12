@@ -15,25 +15,7 @@ import { registerSteamLinkRoutes } from "./routes/steam-link.js";
 
 export function buildApp() {
   const app = Fastify({
-    logger: {
-      level: config.LOG_LEVEL,
-      serializers: {
-        req(request) {
-          // OAuth callbacks carry credentials in the query string. Keep only
-          // the path in request logs, including logs emitted before routing.
-          return {
-            method: request.method,
-            url: request.url.split("?", 1)[0]!,
-            ...(typeof request.headers["accept-version"] === "string"
-              ? { version: request.headers["accept-version"] } : {}),
-            host: request.host,
-            remoteAddress: request.ip,
-            ...(request.socket?.remotePort !== undefined
-              ? { remotePort: request.socket.remotePort } : {})
-          };
-        }
-      }
-    },
+    logger: { level: config.LOG_LEVEL },
     bodyLimit: 1_048_576,
     trustProxy: false
   });

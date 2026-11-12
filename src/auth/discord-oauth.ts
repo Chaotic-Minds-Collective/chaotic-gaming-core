@@ -1,126 +1,164 @@
+import { Buffer } from "node:buffer";
 import { z } from "zod";
 
-const TOKEN_ENDPOINT = "https://discord.com/api/oauth2/token";
-const CURRENT_USER_ENDPOINT = "https://discord.com/api/users/@me";
+const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const tokenSchema = z.object({
+  access_token: z.string().min(1).max(4096),
+  token_type: z.string().min(1),
+  scope: z.string().min(1),
+});
+const userSchema = z.object({
+  id: z.string().regex(/^\d{17,20}$/),
+  username: z.string().min(1).max(32),
+  global_name: z.string().min(1).max(32).nullable().optional(),
+});
 
 export class DiscordOAuthError extends Error {
-  readonly code: string;
-
   constructor(code: string, message: string) {
     super(message);
     this.name = "DiscordOAuthError";
     this.code = code;
   }
+  code: string;
 }
 
-const tokenSchema = z.object({
-  access_token: z.string().min(1).max(4096),
-  token_type: z.string().optional()
-});
-
-const profileSchema = z.object({
-  id: z.string().regex(/^\d{17,20}$/),
-  username: z.string().min(2).max(32)
-});
-
-function unavailableStatus(status: number): boolean {
-  return status === 429 || status >= 500;
+export interface DiscordOAuthConfig {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
 }
 
-/**
- * Exchange a short-lived OAuth authorization code and read the Discord user
- * identity. The access token is intentionally returned nowhere and is never
- * persisted by this helper.
- */
-export async function exchangeDiscordAuthorizationCode(
-  code: string,
-  options: {
-    clientId: string;
-    clientSecret: string;
-    redirectUri: string;
-    fetchImpl?: typeof fetch;
+export interface DiscordLinkedIdentity {
+  externalId: string;
+  externalUsername: string;
+}
+
+export function createDiscordAuthorizationUrl(
+  config: DiscordOAuthConfig,
+  state: string,
+): string {
+  if (!STATE_PATTERN.test(state)) {
+    throw new DiscordOAuthError("INVALID_STATE", "A valid Discord OAuth state is required.");
   }
-): Promise<{ discordId: string; username: string }> {
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.searchParams.set("client_id", config.clientId);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", "identify");
+  url.searchParams.set("redirect_uri", config.redirectUri);
+  url.searchParams.set("state", state);
+  url.searchParams.set("prompt", "consent");
+  return url.toString();
+}
 
-  let tokenResponse: Response;
+function basicAuthorization(config: DiscordOAuthConfig): string {
+  return `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString("base64")}`;
+}
+
+async function revokeAccessToken(
+  config: DiscordOAuthConfig,
+  accessToken: string,
+  fetchImpl: typeof fetch,
+): Promise<void> {
   try {
-    tokenResponse = await fetchImpl(TOKEN_ENDPOINT, {
+    const body = new URLSearchParams({
+      token: accessToken,
+      token_type_hint: "access_token",
+    });
+    await fetchImpl("https://discord.com/api/oauth2/token/revoke", {
       method: "POST",
       headers: {
+        Authorization: basicAuthorization(config),
         "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json"
       },
-      body: new URLSearchParams({
-        client_id: options.clientId,
-        client_secret: options.clientSecret,
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: options.redirectUri
-      }).toString(),
+      body,
       redirect: "error",
-      signal: AbortSignal.timeout(5_000)
+      signal: AbortSignal.timeout(5_000),
     });
   } catch {
-    throw new DiscordOAuthError("DISCORD_UNAVAILABLE", "Discord could not complete the authorization request.");
+    // The access token is never persisted. Revocation is best-effort; Discord expires it.
+  }
+}
+
+export async function exchangeDiscordAuthorizationCode(
+  config: DiscordOAuthConfig,
+  code: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DiscordLinkedIdentity> {
+  if (typeof code !== "string" || code.length < 1 || code.length > 2048) {
+    throw new DiscordOAuthError("INVALID_CODE", "A valid Discord authorization code is required.");
   }
 
-  if (!tokenResponse.ok) {
-    throw new DiscordOAuthError(
-      unavailableStatus(tokenResponse.status) ? "DISCORD_UNAVAILABLE" : "DISCORD_ASSERTION_REJECTED",
-      unavailableStatus(tokenResponse.status)
-        ? "Discord authorization is temporarily unavailable."
-        : "Discord rejected the authorization code."
-    );
-  }
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: config.redirectUri,
+  });
 
-  let tokenBody: unknown;
+  let accessToken: string | undefined;
   try {
-    tokenBody = await tokenResponse.json();
-  } catch {
-    throw new DiscordOAuthError("DISCORD_UNAVAILABLE", "Discord returned an unreadable authorization response.");
-  }
+    const tokenResponse = await fetchImpl("https://discord.com/api/oauth2/token", {
+      method: "POST",
+      headers: {
+        Authorization: basicAuthorization(config),
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body,
+      redirect: "error",
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!tokenResponse.ok) {
+      throw new DiscordOAuthError(
+        "DISCORD_TOKEN_EXCHANGE_FAILED",
+        "Discord did not accept the authorization code.",
+      );
+    }
 
-  const token = tokenSchema.safeParse(tokenBody);
-  if (!token.success || (token.data.token_type && token.data.token_type.toLowerCase() !== "bearer")) {
-    throw new DiscordOAuthError("DISCORD_ASSERTION_REJECTED", "Discord returned an invalid authorization token.");
-  }
+    const tokenResult = tokenSchema.safeParse(await tokenResponse.json());
+    if (!tokenResult.success || tokenResult.data.token_type.toLowerCase() !== "bearer"
+      || !tokenResult.data.scope.split(/\s+/).includes("identify")) {
+      throw new DiscordOAuthError(
+        "DISCORD_TOKEN_RESPONSE_INVALID",
+        "Discord returned an invalid authorization response.",
+      );
+    }
+    accessToken = tokenResult.data.access_token;
 
-  let profileResponse: Response;
-  try {
-    profileResponse = await fetchImpl(CURRENT_USER_ENDPOINT, {
+    const userResponse = await fetchImpl("https://discord.com/api/v10/users/@me", {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${token.data.access_token}`,
-        Accept: "application/json"
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
       },
       redirect: "error",
-      signal: AbortSignal.timeout(5_000)
+      signal: AbortSignal.timeout(8_000),
     });
-  } catch {
-    throw new DiscordOAuthError("DISCORD_UNAVAILABLE", "Discord profile verification is temporarily unavailable.");
-  }
+    if (!userResponse.ok) {
+      throw new DiscordOAuthError(
+        "DISCORD_USER_LOOKUP_FAILED",
+        "Discord could not verify the authorized account.",
+      );
+    }
 
-  if (!profileResponse.ok) {
+    const userResult = userSchema.safeParse(await userResponse.json());
+    if (!userResult.success) {
+      throw new DiscordOAuthError(
+        "DISCORD_USER_RESPONSE_INVALID",
+        "Discord returned an invalid user identity.",
+      );
+    }
+
+    return {
+      externalId: userResult.data.id,
+      externalUsername: userResult.data.global_name || userResult.data.username,
+    };
+  } catch (error) {
+    if (error instanceof DiscordOAuthError) throw error;
     throw new DiscordOAuthError(
-      unavailableStatus(profileResponse.status) ? "DISCORD_UNAVAILABLE" : "DISCORD_ASSERTION_REJECTED",
-      unavailableStatus(profileResponse.status)
-        ? "Discord profile verification is temporarily unavailable."
-        : "Discord rejected the profile request."
+      "DISCORD_UNAVAILABLE",
+      "Discord account verification is temporarily unavailable.",
     );
+  } finally {
+    if (accessToken) await revokeAccessToken(config, accessToken, fetchImpl);
   }
-
-  let profileBody: unknown;
-  try {
-    profileBody = await profileResponse.json();
-  } catch {
-    throw new DiscordOAuthError("DISCORD_UNAVAILABLE", "Discord returned an unreadable profile response.");
-  }
-
-  const profile = profileSchema.safeParse(profileBody);
-  if (!profile.success) {
-    throw new DiscordOAuthError("INVALID_DISCORD_PROFILE", "Discord returned an invalid account identity.");
-  }
-
-  return { discordId: profile.data.id, username: profile.data.username };
 }
