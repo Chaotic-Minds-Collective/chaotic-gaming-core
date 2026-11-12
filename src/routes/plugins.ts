@@ -89,6 +89,26 @@ export async function registerPluginRoutes(app: FastifyInstance): Promise<void> 
         });
       }
 
+      const manifestJson = JSON.stringify(manifest);
+      const artifactDigest = parsed.data.artifactDigest ?? null;
+      const artifactUrl = parsed.data.artifactUrl ?? null;
+      const existingVersion = await client.query<{ id: string; matches: boolean }>(
+        `SELECT id,
+                (manifest = $3::jsonb
+                 AND artifact_digest IS NOT DISTINCT FROM $4
+                 AND artifact_url IS NOT DISTINCT FROM $5) AS matches
+           FROM core.plugin_versions
+          WHERE plugin_id = $1 AND version = $2
+          FOR UPDATE`,
+        [manifest.id, manifest.version, manifestJson, artifactDigest, artifactUrl]
+      );
+      if (existingVersion.rows[0] && !existingVersion.rows[0].matches) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({
+          error: { code: "PLUGIN_VERSION_IMMUTABLE", message: "A published plugin version cannot be overwritten; publish a new version." }
+        });
+      }
+
       await client.query(
         `INSERT INTO core.plugins (plugin_id, name, game, latest_version, lifecycle_status, manifest)
          VALUES ($1, $2, $3, $4, 'VALIDATED', $5::jsonb)
@@ -97,27 +117,15 @@ export async function registerPluginRoutes(app: FastifyInstance): Promise<void> 
                latest_version = EXCLUDED.latest_version,
                manifest = EXCLUDED.manifest,
                updated_at = NOW()`,
-        [manifest.id, manifest.name, manifest.game, manifest.version, JSON.stringify(manifest)]
+        [manifest.id, manifest.name, manifest.game, manifest.version, manifestJson]
       );
 
-      const version = await client.query<{ id: string }>(
+      const versionRow = existingVersion.rows[0] ?? (await client.query<{ id: string }>(
         `INSERT INTO core.plugin_versions
           (plugin_id, version, api_version, manifest, artifact_digest, artifact_url)
          VALUES ($1, $2, $3, $4::jsonb, $5, $6)
-         ON CONFLICT (plugin_id, version) DO NOTHING
          RETURNING id`,
-        [
-          manifest.id,
-          manifest.version,
-          manifest.apiVersion,
-          JSON.stringify(manifest),
-          parsed.data.artifactDigest ?? null,
-          parsed.data.artifactUrl ?? null
-        ]
-      );
-      const versionRow = version.rows[0] ?? (await client.query<{ id: string }>(
-        "SELECT id FROM core.plugin_versions WHERE plugin_id = $1 AND version = $2",
-        [manifest.id, manifest.version]
+        [manifest.id, manifest.version, manifest.apiVersion, manifestJson, artifactDigest, artifactUrl]
       )).rows[0];
       if (!versionRow) throw new Error("Plugin version registration failed.");
 
@@ -202,31 +210,25 @@ export async function registerPluginRoutes(app: FastifyInstance): Promise<void> 
       }
 
       if (body.data.desiredState === "enabled") {
-        const existingInstallation = await client.query<{ id: string }>(
-          "SELECT id FROM core.plugin_installations WHERE server_id = $1 AND plugin_id = $2",
+        const dependencies = await client.query<{ dependency_plugin_id: string; lifecycle_status: string | null }>(
+          `SELECT d.dependency_plugin_id, i.lifecycle_status
+             FROM core.plugin_dependencies d
+             JOIN core.plugin_versions v ON v.id = d.plugin_version_id
+             LEFT JOIN core.plugin_installations i
+               ON i.server_id = $1 AND i.plugin_id = d.dependency_plugin_id
+            WHERE v.plugin_id = $2 AND v.version = (SELECT latest_version FROM core.plugins WHERE plugin_id = $2)`,
           [params.data.serverId, params.data.pluginId]
         );
-        if (existingInstallation.rows[0]) {
-          const dependencies = await client.query<{ dependency_plugin_id: string; lifecycle_status: string | null }>(
-            `SELECT d.dependency_plugin_id, i.lifecycle_status
-               FROM core.plugin_dependencies d
-               JOIN core.plugin_versions v ON v.id = d.plugin_version_id
-               LEFT JOIN core.plugin_installations i
-                 ON i.server_id = $1 AND i.plugin_id = d.dependency_plugin_id
-              WHERE v.plugin_id = $2 AND v.version = (SELECT latest_version FROM core.plugins WHERE plugin_id = $2)`,
-            [params.data.serverId, params.data.pluginId]
-          );
-          const unavailable = dependencies.rows.filter((dependency) => !["ENABLED", "HEALTHY"].includes(dependency.lifecycle_status ?? ""));
-          if (unavailable.length > 0) {
-            await client.query("ROLLBACK");
-            return reply.code(409).send({
-              error: {
-                code: "PLUGIN_DEPENDENCY_NOT_ENABLED",
-                message: "Required plugin dependencies must be enabled and healthy first.",
-                details: { dependencies: unavailable.map((item) => item.dependency_plugin_id) }
-              }
-            });
-          }
+        const unavailable = dependencies.rows.filter((dependency) => !["ENABLED", "HEALTHY"].includes(dependency.lifecycle_status ?? ""));
+        if (unavailable.length > 0) {
+          await client.query("ROLLBACK");
+          return reply.code(409).send({
+            error: {
+              code: "PLUGIN_DEPENDENCY_NOT_ENABLED",
+              message: "Required plugin dependencies must be enabled and healthy first.",
+              details: { dependencies: unavailable.map((item) => item.dependency_plugin_id) }
+            }
+          });
         }
       }
 
