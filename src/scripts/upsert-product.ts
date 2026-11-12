@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { pool } from "../db.js";
 
+const MAX_BIGINT = 9_223_372_036_854_775_807n;
+
 const productSchema = z.object({
   sku: z.string().min(3).max(80).regex(/^[A-Z0-9][A-Z0-9._-]+$/),
   name: z.string().min(2).max(160),
@@ -13,11 +15,17 @@ const productSchema = z.object({
   deliveryType: z.string().min(2).max(80).optional(),
   deliveryPayload: z.record(z.string(), z.unknown()).optional()
 }).superRefine((value, context) => {
+  if (BigInt(value.amountMinor) > MAX_BIGINT) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["amountMinor"], message: "amountMinor exceeds PostgreSQL BIGINT." });
+  }
   if (value.gameKey && !value.deliveryType) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["deliveryType"], message: "deliveryType is required when gameKey is set." });
   }
   if (value.deliveryType && !value.gameKey) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["gameKey"], message: "gameKey is required when deliveryType is set." });
+  }
+  if (value.status === "active" && value.gameKey && (!value.deliveryPayload || Object.keys(value.deliveryPayload).length === 0)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["deliveryPayload"], message: "Active game products require a non-empty validated deliveryPayload." });
   }
 });
 
@@ -59,8 +67,8 @@ try {
   const productId = saved.rows[0]?.id;
   if (!productId) throw new Error("Product upsert failed.");
 
-  const latestPrice = await client.query<{ amount_minor: string; id: string }>(
-    `SELECT id, amount_minor
+  const latestPrice = await client.query<{ amount_minor: string }>(
+    `SELECT amount_minor
        FROM commerce.product_prices
       WHERE product_id = $1 AND currency = $2
         AND active_from <= NOW()
