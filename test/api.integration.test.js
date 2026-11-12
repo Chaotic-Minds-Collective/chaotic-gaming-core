@@ -4,6 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { buildApp } from "../dist/app.js";
 import { pool } from "../dist/db.js";
 import { hashServiceToken } from "../dist/auth/service.js";
+import { issueSession } from "../dist/auth/session.js";
 
 test("public server listing hides unlisted servers and reward workers use leased delivery", {
   skip: !pool ? "DATABASE_URL is not configured" : false,
@@ -28,6 +29,8 @@ test("public server listing hides unlisted servers and reward workers use leased
   const applicationName = "test-reward-worker-" + suffix;
   const linkedExternalId = "76561198000000000";
   const token = "cg_srv_" + randomBytes(36).toString("base64url");
+  const steamExternalId = "76561198000000002";
+  const originalFetch = globalThis.fetch;
 
   try {
     await pool.query("INSERT INTO core.clusters (id, game_key, name, status) VALUES ($1, '7dtd', $2, 'active')", [ids.cluster, "test-cluster-" + suffix]);
@@ -104,6 +107,53 @@ test("public server listing hides unlisted servers and reward workers use leased
     });
     assert.deepEqual(unknownIdentityResponse.json().data, { linked: false });
 
+    const playerSession = await issueSession(ids.userPrincipal, {
+      headers: { "user-agent": "core-integration-test" },
+      ip: "127.0.0.1",
+    });
+    const nonceTimestamp = new Date().toISOString().replace(/\\.\\d{3}Z$/, "Z");
+    const steamAssertion = {
+      "openid.ns": "http://specs.openid.net/auth/2.0",
+      "openid.mode": "id_res",
+      "openid.op_endpoint": "https://steamcommunity.com/openid/login",
+      "openid.claimed_id": "https://steamcommunity.com/openid/id/" + steamExternalId,
+      "openid.identity": "https://steamcommunity.com/openid/id/" + steamExternalId,
+      "openid.return_to": "https://www.chaoticmindsgaming.com/api/account/link/steam/callback?state=" + "s".repeat(43),
+      "openid.response_nonce": nonceTimestamp + "synthetic-nonce",
+      "openid.assoc_handle": "synthetic-association",
+      "openid.signed": "op_endpoint,claimed_id,identity,return_to,response_nonce,assoc_handle",
+      "openid.sig": "synthetic-signature",
+    };
+    globalThis.fetch = async () => new Response("ns:http://specs.openid.net/auth/2.0\\nis_valid:true\\n", { status: 200 });
+    const steamLinkResponse = await app.inject({
+      method: "POST",
+      url: "/auth/linked-accounts/steam",
+      headers: { authorization: "Bearer " + playerSession.token },
+      payload: steamAssertion,
+    });
+    assert.equal(steamLinkResponse.statusCode, 201, steamLinkResponse.body);
+    assert.equal(steamLinkResponse.json().data.externalId, steamExternalId);
+
+    const steamReplayResponse = await app.inject({
+      method: "POST",
+      url: "/auth/linked-accounts/steam",
+      headers: { authorization: "Bearer " + playerSession.token },
+      payload: steamAssertion,
+    });
+    assert.equal(steamReplayResponse.statusCode, 409);
+    assert.equal(steamReplayResponse.json().error.code, "STEAM_ASSERTION_REPLAYED");
+    globalThis.fetch = originalFetch;
+
+    const resolvedSteamLink = await app.inject({
+      method: "POST",
+      url: "/integrations/servers/" + ids.publicServer + "/players/resolve",
+      headers: { authorization: "Bearer " + token },
+      payload: { provider: "steam", externalId: steamExternalId },
+    });
+    assert.equal(resolvedSteamLink.statusCode, 200);
+    assert.equal(resolvedSteamLink.json().data.linked, true);
+    assert.equal(resolvedSteamLink.json().data.principalId, ids.userPrincipal);
+
     const claimResponse = await app.inject({
       method: "POST",
       url: "/integrations/servers/" + ids.publicServer + "/rewards/claim",
@@ -145,7 +195,9 @@ test("public server listing hides unlisted servers and reward workers use leased
     await pool.query("DELETE FROM commerce.reward_attempts WHERE reward_id = $1", [ids.reward]);
     await pool.query("DELETE FROM commerce.reward_queue WHERE id = $1", [ids.reward]);
     await pool.query("DELETE FROM commerce.entitlements WHERE id = $1", [ids.entitlement]);
-    await pool.query("DELETE FROM core.linked_accounts WHERE id = $1", [ids.linkedAccount]);
+    await pool.query("DELETE FROM core.linked_accounts WHERE provider = 'steam' AND external_id IN ($1, $2)", ["76561198000000000", steamExternalId]);
+    await pool.query("DELETE FROM core.identity_assertion_nonces WHERE provider = 'steam' AND external_id = $1", [steamExternalId]);
+    await pool.query("DELETE FROM core.auth_sessions WHERE principal_id = $1", [ids.userPrincipal]);
     await pool.query("DELETE FROM commerce.order_items WHERE product_id = $1", [ids.product]);
     await pool.query("DELETE FROM commerce.orders WHERE principal_id = $1", [ids.userPrincipal]);
     await pool.query("DELETE FROM commerce.products WHERE id = $1", [ids.product]);
@@ -157,6 +209,7 @@ test("public server listing hides unlisted servers and reward workers use leased
     await pool.query("DELETE FROM operations.server_heartbeats WHERE server_id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
     await pool.query("DELETE FROM core.servers WHERE id = ANY($1::uuid[])", [[ids.publicServer, ids.privateServer]]);
     await pool.query("DELETE FROM core.clusters WHERE id = $1", [ids.cluster]);
+    globalThis.fetch = originalFetch;
     await app.close();
     await pool.end();
   }
