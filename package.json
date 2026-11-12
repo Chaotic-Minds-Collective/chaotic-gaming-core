@@ -17,7 +17,8 @@
     "server:create": "tsx src/scripts/create-game-server.ts",
     "server:configure": "tsx src/scripts/configure-game-server.ts",
     "role:assign": "tsx src/scripts/assign-role.ts",
-    "product:upsert": "tsx src/scripts/upsert-product.ts"
+    "product:upsert": "tsx src/scripts/upsert-product.ts",
+    "admin:grant": "tsx src/scripts/grant-platform-admin.ts"
   },
   "dependencies": {
     "@fastify/rate-limit": "^10.2.1",

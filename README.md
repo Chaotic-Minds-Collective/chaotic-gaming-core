@@ -18,6 +18,72 @@ The shared platform backend for Chaotic Gaming. This repository owns player iden
 
 <!-- /coderabbit-ai-generated:v1 -->
 2. Copy `.env.example` to `.env` and set `DATABASE_URL`.
+3. Set `STEAM_OPENID_RETURN_URL` to the website's exact Steam callback URL.
+4. Run `npm install`.
+5. Run `npm run db:migrate` against a non-production database.
+6. Run `npm run dev`.
+
+The API listens on `PORT` (default 3001). `GET /health/live` is process liveness; `GET /health/ready` checks PostgreSQL connectivity.
+
+## Administration commands
+
+Create a game server record:
+
+`npm run server:create -- 7dtd "Main Cluster" "7DTD Main" production`
+
+Configure its public connection details:
+
+`npm run server:configure -- <SERVER_UUID> '{"publicHostname":"play.example.net","gamePort":26900,"queryPort":26901,"maxPlayers":50,"mapName":"Navezgane","isListed":true}'`
+
+Create a least-privilege service account:
+
+`npm run service:create -- 7dtd-event-bridge --role game_event_publisher --scope-type server --scope-id <SERVER_UUID>`
+
+Assign additional roles to an existing principal:
+
+`npm run role:assign -- <PRINCIPAL_UUID> reward_worker server <SERVER_UUID>`
+
+Create or update a draft product:
+
+`npm run product:upsert -- '<JSON product definition>'`
+
+Run administration commands only from a trusted environment with a non-production database until the deployment is approved. Service credentials are printed once; store them in the host's secret manager.
+
+## Security baseline
+
+- Never commit credentials, tokens, or production data.
+- Store only hashes of opaque session and service credentials.
+- Enforce permissions server-side; Discord roles are not platform permissions.
+- Steam linking verifies the signed OpenID assertion server-side and rejects nonce replay.
+- External account linking must prove ownership; never link by username alone.
+- Use least-privilege service identities for each integration.
+- Audit authorization-sensitive actions.
+- Payment webhooks must be signature-verified and idempotent before granting entitlements.
+- Plugin catalogue entries never install or execute plugin code.
+
+## Status
+
+Foundation implementation is committed and CI-tested. External identity linking beyond Steam, account recovery/email verification, payment-provider integration, actual game reward fulfillment, artifact signing/sandboxing and production operations remain incomplete. No production database migrations have been applied and no production service has been deployed.
+
+## Test-mode checkout
+
+Stripe Checkout is disabled by default and accepts test-mode secret keys only. To enable it in an isolated development or staging environment, configure PAYMENTS_ENABLED=true, a Stripe test secret (sk_test_), a webhook signing secret (whsec_), and HTTPS success/cancel URLs. Live keys are rejected by the application.
+
+- GET /commerce/checkout/status reports whether test checkout is configured.
+- POST /commerce/orders/:orderId/checkout creates or reuses a Stripe test Checkout session for the authenticated order owner.
+- POST /webhooks/stripe verifies the raw-body signature, checks amount and currency, protects against duplicate events, and grants entitlements only after a verified paid event.
+
+The Core API holds the Stripe secret. The website receives only a validated checkout.stripe.com URL. Do not put Stripe credentials in the website environment, commit them, or configure live-mode keys. See docs/commerce/stripe-test-mode.md for setup and webhook details.
+
+## Commerce catalog administration
+
+Catalog management is restricted to the platform-scoped commerce.manage permission. The platform_admin role receives this permission from the base RBAC migration. After a player account has been registered, a database operator can grant the role explicitly with:
+
+```bash
+npm run admin:grant -- <PLAYER_PRINCIPAL_UUID>
+```
+
+The player principal UUID is displayed on the signed-in account page. See docs/commerce/catalog-management.md for the product, price and per-game delivery mapping API. Do not configure delivery mappings until the target game adapter supports the declared delivery type.
 3. Run `npm install`.
 4. Run `npm run db:migrate` to apply SQL migrations.
 5. Run `npm run dev`.
@@ -30,19 +96,4 @@ The shared platform backend for Chaotic Gaming. This repository owns player iden
 - Keep production credentials and data out of development/test environments.
 
 ## Current scope
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:458c28d158bc356ad2fe533bda02866dd7ae30f03984eab54fef605e7300182b -->
-
-The migrations establish identity, linked accounts, sessions, RBAC, service credentials, audit logs, an event outbox and idempotency records. The API includes authentication, Steam and Discord account linking, server management, player identity resolution, commerce, rewards, game events and plugin persistence.
-
-<!-- /coderabbit-ai-generated:v1 -->
-## Discord account linking
-
-Discord linking uses the existing Core OAuth2 authorization-code flow. The website calls `POST /auth/discord-link/challenge` through its server-side session proxy, relays the short-lived binding cookie in an HttpOnly website cookie, and forwards the Discord callback to Core's `GET /auth/discord-link/callback` endpoint. The Core callback URL remains internal; Discord's registered redirect URI is the website BFF endpoint.
-
-Configure `DISCORD_OAUTH_CLIENT_ID`, `DISCORD_OAUTH_CLIENT_SECRET`, `DISCORD_OAUTH_REDIRECT_URL` and `DISCORD_LINK_COMPLETE_URL` together. Register this exact redirect URI in the Discord Developer Portal:
-
-`https://www.chaoticmindsgaming.com/api/account/link/discord/callback`
-
-The completion URL should point to the website's `/account` page. The flow requests only the `identify` scope, verifies a one-time state challenge and session binding, and does not persist Discord access tokens.
+The initial migration establishes identity, linked accounts, sessions, RBAC, service credentials, audit logs, an event outbox and idempotency records. Authentication flows and business APIs are added in subsequent milestones.
