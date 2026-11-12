@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validatePluginManifest, PluginManifestError } from "../src/plugins/manifest.js";
-import { PluginRegistry, PluginRegistryError } from "../src/plugins/registry.js";
+import { validatePluginManifest, PluginManifestError } from "../src/manifest.js";
+import { PluginRegistry, PluginRegistryError } from "../src/registry.js";
 
 const manifest = (overrides = {}) => ({
   id: "com.chaoticgaming.platform.server-health",

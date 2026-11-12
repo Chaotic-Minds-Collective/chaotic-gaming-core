@@ -5,5 +5,5 @@
   "description": "Manifest validation and lifecycle registry for Chaotic Gaming plugins.",
   "type": "module",
   "engines": { "node": ">=20.9.0" },
-  "scripts": { "test": "node --test", "check": "node --check src/plugins/manifest.js && node --check src/plugins/registry.js" }
+  "scripts": { "test": "node --test", "check": "node --check src/manifest.js && node --check src/registry.js" }
 }
