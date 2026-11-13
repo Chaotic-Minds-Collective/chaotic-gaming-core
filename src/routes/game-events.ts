@@ -46,6 +46,17 @@ export const gameEventSchema = z.object({
 });
 
 export async function registerGameEventRoutes(app: FastifyInstance): Promise<void> {
+  app.addHook("onReady", async () => {
+    if (!pool) return;
+    // Refuse to serve before migration 020; old writers remain compatible
+    // with its nullable columns during the subsequent rolling deployment.
+    const schemaQuery = {
+      text: "SELECT cluster_id, grid_id, correlation_id FROM operations.game_events LIMIT 0",
+      query_timeout: 5_000
+    };
+    await pool.query(schemaQuery);
+  });
+
   app.post("/integrations/servers/:serverId/events", async (request, reply) => {
     if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Game event ingestion is temporarily unavailable." } });
 

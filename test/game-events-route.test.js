@@ -87,6 +87,14 @@ test("game event route validates scope and persists authoritative metadata", {
         });
       });
     }
+
+    await pool.query("UPDATE core.principal_role_assignments SET scope_id = $2 WHERE principal_id = $1 AND scope_type = 'server'", [principalId, serverId.toUpperCase()]);
+    for (const urlServerId of [serverId, serverId.toUpperCase()]) {
+      const response = await publish({ ...baseEvent, eventId: randomUUID() }, urlServerId);
+      assert.equal(response.statusCode, 202, response.body);
+    }
+    const forbidden = await publish({ ...baseEvent, eventId: randomUUID() }, randomUUID());
+    assert.equal(forbidden.statusCode, 403, forbidden.body);
   } finally {
     try {
       await pool.query("DELETE FROM operations.event_outbox WHERE aggregate_type = 'game_event' AND aggregate_id IN (SELECT id::text FROM operations.game_events WHERE server_id = $1)", [serverId]);

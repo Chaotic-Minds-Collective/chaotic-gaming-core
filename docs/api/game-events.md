@@ -43,4 +43,10 @@ Deploy in this order:
 2. Roll out the new API. During overlap, old writers may leave the new metadata columns null; new writers persist the registered cluster and supplied grid/correlation metadata.
 3. Confirm every old API instance and any other legacy event writer has been retired, and verify no rows are missing `cluster_id`. Only then add `NOT NULL` in a separate contract migration. That contract migration is intentionally not included in phase 020.
 
-The migration is not run automatically by API startup. Deployment automation must enforce this ordering and wait for migration success before deploying the new API.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:330871879e9199cdcd32f8f0ad82e5a987225a00c3e5a58b7c2581a92fe1eba2 -->
+
+The migration is not run automatically by API startup. Deployment automation must enforce this ordering and wait for migration success before deploying the new API. The API also probes the three event metadata columns before listening; startup fails if migration 020 has not completed, so an incompatible new instance cannot accept traffic. Keep legacy instances serving until the new instances pass startup.
+
+<!-- /coderabbit-ai-generated:v1 -->
