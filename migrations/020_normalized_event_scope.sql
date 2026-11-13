@@ -22,7 +22,8 @@ ALTER TABLE operations.game_events
 
 ALTER TABLE operations.game_events
   ADD CONSTRAINT game_events_event_type_check CHECK (event_type IN (
-    'player.joined', 'player.left', 'player.chat', 'player.died', 'player.killed',
+    'player.joined', 'player.left', 'player.connected', 'player.disconnected',
+    'player.chat', 'player.died', 'player.killed',
     'character.created', 'character.transferred',
     'tribe.created', 'tribe.member.joined', 'tribe.member.left', 'tribe.updated',
     'chat.global', 'chat.tribe',

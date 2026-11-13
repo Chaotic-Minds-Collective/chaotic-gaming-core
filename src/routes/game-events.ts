@@ -6,6 +6,8 @@ import { requireServicePermission } from "../auth/service.js";
 export const NORMALIZED_GAME_EVENT_TYPES = [
   "player.joined",
   "player.left",
+  "player.connected",
+  "player.disconnected",
   "player.chat",
   "player.died",
   "player.killed",

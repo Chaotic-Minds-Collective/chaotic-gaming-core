@@ -10,8 +10,8 @@ const baseEvent = {
   payload: { providerPlayerId: "player-1" }
 };
 
-test("accepts every normalized event type shared with the ATLAS adapter contract", () => {
-  assert.equal(NORMALIZED_GAME_EVENT_TYPES.length, 21);
+ test("accepts every normalized Core event type", () => {
+  assert.equal(NORMALIZED_GAME_EVENT_TYPES.length, 23);
   for (const eventType of NORMALIZED_GAME_EVENT_TYPES) {
     const parsed = gameEventSchema.safeParse({ ...baseEvent, eventType });
     assert.equal(parsed.success, true, `expected ${eventType} to be accepted`);
