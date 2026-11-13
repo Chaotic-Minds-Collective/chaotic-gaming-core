@@ -1,4 +1,4 @@
-# Chaotic Minds Gaming Core
+# CMG ATLAS Core Plugin
 
 The shared platform backend for Chaotic Minds Gaming. This repository owns player identity, authentication, scoped authorization, platform APIs, durable events, and integrations.
 
