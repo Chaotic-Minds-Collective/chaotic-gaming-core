@@ -49,7 +49,7 @@ export async function registerGameEventRoutes(app: FastifyInstance): Promise<voi
   app.post("/integrations/servers/:serverId/events", async (request, reply) => {
     if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Game event ingestion is temporarily unavailable." } });
 
-    const params = z.object({ serverId: z.string().uuid() }).safeParse(request.params);
+    const params = z.object({ serverId: z.string().uuid().transform((value) => value.toLowerCase()) }).safeParse(request.params);
     const body = gameEventSchema.safeParse(request.body);
     if (!params.success || !body.success) {
       return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "A valid server ID and normalized game event are required." } });
@@ -70,8 +70,8 @@ export async function registerGameEventRoutes(app: FastifyInstance): Promise<voi
         return reply.code(404).send({ error: { code: "SERVER_NOT_FOUND", message: "The assigned server was not found for this game." } });
       }
       if (body.data.scope && (
-        body.data.scope.serverId !== params.data.serverId ||
-        body.data.scope.clusterId !== server.rows[0].cluster_id
+        body.data.scope.serverId.toLowerCase() !== params.data.serverId ||
+        body.data.scope.clusterId.toLowerCase() !== server.rows[0].cluster_id.toLowerCase()
       )) {
         await client.query("ROLLBACK");
         return reply.code(409).send({ error: { code: "EVENT_SCOPE_MISMATCH", message: "The event scope does not match the assigned server and cluster." } });
