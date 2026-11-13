@@ -1,8 +1,8 @@
 {
-  "name": "@chaotic-gaming/core-plugin-registry",
+  "name": "@chaotic-minds-gaming/core-plugin-registry",
   "version": "0.1.0",
   "private": true,
-  "description": "Manifest validation and lifecycle registry for Chaotic Gaming plugins.",
+  "description": "Manifest validation and lifecycle registry for Chaotic Minds Gaming plugins.",
   "type": "module",
   "engines": { "node": ">=20.9.0" },
   "scripts": { "test": "node --test", "check": "node --check src/manifest.js && node --check src/registry.js" }
