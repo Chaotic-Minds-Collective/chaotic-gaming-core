@@ -1,7 +1,48 @@
 const ID_PATTERN = /^[a-z0-9]+(?:[.-][a-z0-9]+){2,}$/;
-const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const GAMES = new Set(["platform", "atlas", "7dtd", "ark"]);
 const REQUIRED = ["id", "name", "version", "game", "apiVersion", "dependencies", "capabilities", "permissions", "compatibility"];
+
+function isNumericIdentifier(value) {
+  return /^\d+$/.test(value);
+}
+
+function isValidCoreNumeric(value) {
+  return value === "0" || (/^[1-9]\d*$/.test(value));
+}
+
+function isValidSemVer(version) {
+  const plusIndex = version.indexOf("+");
+  if (plusIndex !== -1 && version.indexOf("+", plusIndex + 1) !== -1) return false;
+
+  const mainAndPre = plusIndex === -1 ? version : version.slice(0, plusIndex);
+  const build = plusIndex === -1 ? "" : version.slice(plusIndex + 1);
+
+  if (plusIndex !== -1) {
+    if (!build) return false;
+    const buildIds = build.split(".");
+    if (buildIds.some((id) => !id || !/^[0-9A-Za-z-]+$/.test(id))) return false;
+  }
+
+  const hyphenIndex = mainAndPre.indexOf("-");
+
+  const core = hyphenIndex === -1 ? mainAndPre : mainAndPre.slice(0, hyphenIndex);
+  const prerelease = hyphenIndex === -1 ? "" : mainAndPre.slice(hyphenIndex + 1);
+
+  const coreParts = core.split(".");
+  if (coreParts.length !== 3) return false;
+  if (!coreParts.every((part) => isValidCoreNumeric(part))) return false;
+
+  if (hyphenIndex !== -1) {
+    if (!prerelease) return false;
+    const preIds = prerelease.split(".");
+    for (const id of preIds) {
+      if (!id || !/^[0-9A-Za-z-]+$/.test(id)) return false;
+      if (isNumericIdentifier(id) && !isValidCoreNumeric(id)) return false;
+    }
+  }
+
+  return true;
+}
 
 export class PluginManifestError extends Error {
   constructor(message) {
@@ -25,7 +66,7 @@ export function validatePluginManifest(input) {
   if (typeof input.name !== "string" || !input.name.trim() || input.name.length > 120) {
     throw new PluginManifestError("name must be a non-empty string of at most 120 characters");
   }
-  if (typeof input.version !== "string" || input.version.length > 256 || !VERSION_PATTERN.test(input.version)) {
+  if (typeof input.version !== "string" || input.version.length > 256 || !isValidSemVer(input.version)) {
     throw new PluginManifestError("version must use semantic versioning and be at most 256 characters");
   }
   if (!GAMES.has(input.game)) {
