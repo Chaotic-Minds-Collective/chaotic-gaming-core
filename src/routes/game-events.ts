@@ -3,11 +3,43 @@ import { z } from "zod";
 import { pool } from "../db.js";
 import { requireServicePermission } from "../auth/service.js";
 
-const eventSchema = z.object({
+export const NORMALIZED_GAME_EVENT_TYPES = [
+  "player.joined",
+  "player.left",
+  "player.chat",
+  "player.died",
+  "player.killed",
+  "character.created",
+  "character.transferred",
+  "tribe.created",
+  "tribe.member.joined",
+  "tribe.member.left",
+  "tribe.updated",
+  "chat.global",
+  "chat.tribe",
+  "ship.sunk",
+  "ship.retrieved",
+  "structure.destroyed",
+  "tame.created",
+  "tame.died",
+  "server.started",
+  "server.stopped",
+  "server.state.changed"
+] as const;
+
+const eventScopeSchema = z.object({
+  clusterId: z.string().uuid(),
+  gridId: z.string().trim().min(1).max(200),
+  serverId: z.string().uuid()
+}).strict();
+
+export const gameEventSchema = z.object({
   game: z.enum(["atlas", "7dtd", "ark"]),
   eventId: z.string().trim().min(1).max(200),
-  eventType: z.enum(["player.joined", "player.left", "player.chat", "server.started", "server.stopped", "player.died"]),
+  eventType: z.enum(NORMALIZED_GAME_EVENT_TYPES),
   occurredAt: z.string().datetime(),
+  scope: eventScopeSchema.optional(),
+  correlationId: z.string().trim().min(1).max(200).nullable().optional(),
   payload: z.record(z.string(), z.unknown()).default({})
 });
 
@@ -16,7 +48,7 @@ export async function registerGameEventRoutes(app: FastifyInstance): Promise<voi
     if (!pool) return reply.code(503).send({ error: { code: "DATABASE_UNAVAILABLE", message: "Game event ingestion is temporarily unavailable." } });
 
     const params = z.object({ serverId: z.string().uuid() }).safeParse(request.params);
-    const body = eventSchema.safeParse(request.body);
+    const body = gameEventSchema.safeParse(request.body);
     if (!params.success || !body.success) {
       return reply.code(400).send({ error: { code: "VALIDATION_ERROR", message: "A valid server ID and normalized game event are required." } });
     }
@@ -27,23 +59,33 @@ export async function registerGameEventRoutes(app: FastifyInstance): Promise<voi
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const server = await client.query<{ id: string; game_key: string }>(
-        "SELECT id, game_key FROM core.servers WHERE id = $1 AND status <> 'deleted'",
+      const server = await client.query<{ id: string; game_key: string; cluster_id: string }>(
+        "SELECT id, game_key, cluster_id FROM core.servers WHERE id = $1 AND status <> 'deleted'",
         [params.data.serverId]
       );
       if (!server.rows[0] || server.rows[0].game_key !== body.data.game) {
         await client.query("ROLLBACK");
         return reply.code(404).send({ error: { code: "SERVER_NOT_FOUND", message: "The assigned server was not found for this game." } });
       }
+      if (body.data.scope && (
+        body.data.scope.serverId !== params.data.serverId ||
+        body.data.scope.clusterId !== server.rows[0].cluster_id
+      )) {
+        await client.query("ROLLBACK");
+        return reply.code(409).send({ error: { code: "EVENT_SCOPE_MISMATCH", message: "The event scope does not match the assigned server and cluster." } });
+      }
 
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO operations.game_events
-          (server_id, game_key, external_event_id, event_type, payload, occurred_at)
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+          (server_id, cluster_id, grid_id, correlation_id, game_key, external_event_id, event_type, payload, occurred_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
          ON CONFLICT (server_id, external_event_id) DO NOTHING
          RETURNING id`,
         [
           params.data.serverId,
+          server.rows[0].cluster_id,
+          body.data.scope?.gridId ?? null,
+          body.data.correlationId ?? null,
           body.data.game,
           body.data.eventId,
           body.data.eventType,
@@ -68,6 +110,9 @@ export async function registerGameEventRoutes(app: FastifyInstance): Promise<voi
         [eventRecordId, JSON.stringify({
           eventRecordId,
           serverId: params.data.serverId,
+          clusterId: server.rows[0].cluster_id,
+          gridId: body.data.scope?.gridId ?? null,
+          correlationId: body.data.correlationId ?? null,
           game: body.data.game,
           eventId: body.data.eventId,
           eventType: body.data.eventType,
