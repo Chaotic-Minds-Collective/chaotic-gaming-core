@@ -85,6 +85,82 @@ test("public server listing hides unlisted servers and reward workers use leased
       [ids.servicePrincipal, ids.publicServer]
     );
 
+    // Event route integration: mismatched scope must write neither event nor outbox.
+    // Then prove UUID matching is case-insensitive and both records use authoritative scope.
+    const rejectedEventId = "scope-mismatch-" + suffix;
+    const acceptedEventId = "scope-accepted-" + suffix;
+    const gridId = "A1-" + suffix.slice(0, 8);
+    const correlationId = "correlation-" + suffix;
+    const eventUrl = "/integrations/servers/" + ids.publicServer.toUpperCase() + "/events";
+    const eventHeaders = { authorization: "Bearer " + token };
+    const rejectedEventResponse = await app.inject({
+      method: "POST",
+      url: eventUrl,
+      headers: eventHeaders,
+      payload: {
+        game: "7dtd",
+        eventId: rejectedEventId,
+        eventType: "player.connected",
+        occurredAt: new Date().toISOString(),
+        scope: {
+          clusterId: randomUUID(),
+          gridId,
+          serverId: ids.publicServer.toUpperCase(),
+        },
+        correlationId,
+        payload: { providerPlayerId: "test-provider-player" },
+      },
+    });
+    assert.equal(rejectedEventResponse.statusCode, 409, rejectedEventResponse.body);
+    const rejectedEventRows = await pool.query(
+      "SELECT count(*)::int AS count FROM operations.game_events WHERE server_id = $1 AND external_event_id = $2",
+      [ids.publicServer, rejectedEventId]
+    );
+    const rejectedOutboxRows = await pool.query(
+      "SELECT count(*)::int AS count FROM operations.event_outbox WHERE event_type = 'game.event.received' AND payload->>'eventId' = $1",
+      [rejectedEventId]
+    );
+    assert.equal(rejectedEventRows.rows[0].count, 0);
+    assert.equal(rejectedOutboxRows.rows[0].count, 0);
+
+    const acceptedEventResponse = await app.inject({
+      method: "POST",
+      url: eventUrl,
+      headers: eventHeaders,
+      payload: {
+        game: "7dtd",
+        eventId: acceptedEventId,
+        eventType: "player.connected",
+        occurredAt: new Date().toISOString(),
+        scope: {
+          clusterId: ids.cluster.toUpperCase(),
+          gridId,
+          serverId: ids.publicServer.toUpperCase(),
+        },
+        correlationId,
+        payload: { providerPlayerId: "test-provider-player" },
+      },
+    });
+    assert.equal(acceptedEventResponse.statusCode, 202, acceptedEventResponse.body);
+    const acceptedEventRows = await pool.query(
+      "SELECT id, cluster_id, grid_id, correlation_id FROM operations.game_events WHERE server_id = $1 AND external_event_id = $2",
+      [ids.publicServer, acceptedEventId]
+    );
+    assert.equal(acceptedEventRows.rows.length, 1);
+    assert.equal(acceptedEventRows.rows[0].cluster_id, ids.cluster);
+    assert.equal(acceptedEventRows.rows[0].grid_id, gridId);
+    assert.equal(acceptedEventRows.rows[0].correlation_id, correlationId);
+    const acceptedOutboxRows = await pool.query(
+      "SELECT payload FROM operations.event_outbox WHERE event_type = 'game.event.received' AND aggregate_type = 'game_event' AND aggregate_id = $1",
+      [acceptedEventRows.rows[0].id]
+    );
+    assert.equal(acceptedOutboxRows.rows.length, 1);
+    assert.equal(acceptedOutboxRows.rows[0].payload.clusterId, ids.cluster);
+    assert.equal(acceptedOutboxRows.rows[0].payload.serverId, ids.publicServer);
+    assert.equal(acceptedOutboxRows.rows[0].payload.gridId, gridId);
+    assert.equal(acceptedOutboxRows.rows[0].payload.correlationId, correlationId);
+    assert.equal(acceptedOutboxRows.rows[0].payload.eventId, acceptedEventId);
+
     const publicResponse = await app.inject({ method: "GET", url: "/servers" });
     assert.equal(publicResponse.statusCode, 200);
     const publicServers = publicResponse.json().data;
@@ -249,6 +325,14 @@ test("public server listing hides unlisted servers and reward workers use leased
     assert.equal(stored.rows[0].status, "delivered");
     assert.equal(stored.rows[0].attempts, 1);
   } finally {
+    await pool.query(
+      "DELETE FROM operations.event_outbox WHERE event_type = 'game.event.received' AND payload->>'eventId' = ANY($1::text[])",
+      [["scope-mismatch-" + suffix, "scope-accepted-" + suffix]]
+    );
+    await pool.query(
+      "DELETE FROM operations.game_events WHERE server_id = $1 AND external_event_id = ANY($2::text[])",
+      [ids.publicServer, ["scope-mismatch-" + suffix, "scope-accepted-" + suffix]]
+    );
     await pool.query("DELETE FROM operations.audit_logs WHERE actor_principal_id = ANY($1::uuid[]) OR resource_id = ANY($2::text[])", [
       [ids.servicePrincipal, ids.userPrincipal, ids.steamLinkPrincipal, ids.otherPrincipal],
       [ids.publicServer, ids.privateServer, ids.reward, steamExternalId],

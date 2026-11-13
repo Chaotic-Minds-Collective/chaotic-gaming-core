@@ -11,7 +11,6 @@ UPDATE operations.game_events AS events
  WHERE servers.id = events.server_id;
 
 ALTER TABLE operations.game_events
-  ALTER COLUMN cluster_id SET NOT NULL,
   ADD CONSTRAINT game_events_grid_id_length_check
     CHECK (grid_id IS NULL OR length(btrim(grid_id)) BETWEEN 1 AND 200),
   ADD CONSTRAINT game_events_correlation_id_length_check
