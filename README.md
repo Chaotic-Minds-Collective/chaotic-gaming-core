@@ -1,11 +1,11 @@
-# Chaotic Gaming Core
+# Chaotic Minds Gaming Core
 
-The shared platform backend for Chaotic Gaming. This repository owns player identity, authentication, scoped authorization, platform APIs, durable events and integrations.
+The shared platform backend for Chaotic Minds Gaming. This repository owns player identity, authentication, scoped authorization, platform APIs, durable events, and integrations.
 
 ## Architecture
 - TypeScript / Node.js modular monolith.
 - PostgreSQL as the system of record.
-- REST API for the website, Glitch Bot and game adapters.
+- REST API for the website, Glitch Bot, and game adapters.
 - Database-backed transactional outbox for reliable asynchronous events.
 - Separate game-specific modules and schemas; no direct database credentials in bots or game plugins.
 
@@ -63,11 +63,11 @@ Run administration commands only from a trusted environment with a non-productio
 
 ## Status
 
-Foundation implementation is committed and CI-tested. External identity linking beyond Steam, account recovery/email verification, payment-provider integration, actual game reward fulfillment, artifact signing/sandboxing and production operations remain incomplete. No production database migrations have been applied and no production service has been deployed.
+Foundation implementation is committed and CI-tested. External identity linking beyond Steam, account recovery/email verification, payment-provider integration, actual game reward fulfillment, artifact signing/sandboxing, and production operations remain incomplete. No production database migrations have been applied, and no production service has been deployed.
 
 ## Test-mode checkout
 
-Stripe Checkout is disabled by default and accepts test-mode secret keys only. To enable it in an isolated development or staging environment, configure PAYMENTS_ENABLED=true, a Stripe test secret (sk_test_), a webhook signing secret (whsec_), and HTTPS success/cancel URLs. Live keys are rejected by the application.
+Stripe Checkout is disabled by default and accepts only test-mode secret keys. To enable it in an isolated development or staging environment, configure PAYMENTS_ENABLED=true, a Stripe test secret (sk_test_), a webhook signing secret (whsec_), and HTTPS success/cancel URLs. The application rejects live keys.
 
 - GET /commerce/checkout/status reports whether test checkout is configured.
 - POST /commerce/orders/:orderId/checkout creates or reuses a Stripe test Checkout session for the authenticated order owner.
@@ -83,7 +83,7 @@ Catalog management is restricted to the platform-scoped commerce.manage permissi
 npm run admin:grant -- <PLAYER_PRINCIPAL_UUID>
 ```
 
-The player principal UUID is displayed on the signed-in account page. See docs/commerce/catalog-management.md for the product, price and per-game delivery mapping API. Do not configure delivery mappings until the target game adapter supports the declared delivery type.
+The player principal UUID is displayed on the signed-in account page. See docs/commerce/catalog-management.md for the product, price, and per-game delivery mapping API. Do not configure delivery mappings until the target game adapter supports the declared delivery type.
 3. Run `npm install`.
 4. Run `npm run db:migrate` to apply SQL migrations.
 5. Run `npm run dev`.
@@ -96,4 +96,4 @@ The player principal UUID is displayed on the signed-in account page. See docs/c
 - Keep production credentials and data out of development/test environments.
 
 ## Current scope
-The initial migration establishes identity, linked accounts, sessions, RBAC, service credentials, audit logs, an event outbox and idempotency records. Authentication flows and business APIs are added in subsequent milestones.
+The initial migration establishes identity, linked accounts, sessions, RBAC, service credentials, audit logs, an event outbox, and idempotency records. Authentication flows and business APIs are added in subsequent milestones.
