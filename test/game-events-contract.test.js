@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { gameEventSchema, NORMALIZED_GAME_EVENT_TYPES } from "../dist/routes/game-events.js";
 
 const baseEvent = {
@@ -55,4 +56,11 @@ test("rejects unknown event types and malformed scope metadata", () => {
     }
   }).success, false);
   assert.equal(gameEventSchema.safeParse({ ...baseEvent, correlationId: " " }).success, false);
+});
+
+test("documents every normalized event type in the public API contract", () => {
+  const docs = readFileSync(new URL("../docs/api/game-events.md", import.meta.url), "utf8");
+  for (const eventType of NORMALIZED_GAME_EVENT_TYPES) {
+    assert.ok(docs.includes("`" + eventType + "`"), `API docs must list ${eventType}`);
+  }
 });
