@@ -24,7 +24,6 @@ function isValidSemVer(version) {
   }
 
   const hyphenIndex = mainAndPre.indexOf("-");
-  if (hyphenIndex !== -1 && mainAndPre.indexOf("-", hyphenIndex + 1) !== -1) return false;
 
   const core = hyphenIndex === -1 ? mainAndPre : mainAndPre.slice(0, hyphenIndex);
   const prerelease = hyphenIndex === -1 ? "" : mainAndPre.slice(hyphenIndex + 1);

@@ -26,7 +26,7 @@ test("validates and defensively copies a plugin manifest", () => {
 });
 
 test("accepts valid SemVer prerelease and build identifiers", () => {
-  for (const version of ["1.0.0-0", "1.0.0-alpha.1", "1.0.0-alpha.1+build.01", "1.0.0+build.01"]) {
+  for (const version of ["1.0.0-0", "1.0.0-alpha.1", "1.0.0-alpha-beta", "1.0.0-alpha-beta.1", "1.0.0-alpha.1+build.01", "1.0.0+build.01"]) {
     assert.equal(validatePluginManifest(manifest({ version })).version, version);
   }
 });
