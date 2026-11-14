@@ -4,6 +4,7 @@ import { config } from "./config.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerCommerceRoutes } from "./routes/commerce.js";
 import { registerDiscordLinkRoutes } from "./routes/discord-link.js";
+import { registerEventOutboxRoutes } from "./routes/event-outbox.js";
 import { registerGameEventRoutes } from "./routes/game-events.js";
 import { registerHealthRoutes } from "./routes/health.js";
 import { registerIntegrationRoutes } from "./routes/integrations.js";
@@ -20,8 +21,6 @@ export function buildApp() {
       level: config.LOG_LEVEL,
       serializers: {
         req(request) {
-          // OAuth callbacks carry credentials in the query string. Keep only
-          // the path in request logs, including logs emitted before routing.
           return {
             method: request.method,
             url: request.url.split("?", 1)[0]!,
@@ -62,6 +61,7 @@ export function buildApp() {
   void registerPaymentRoutes(app);
   void registerServerRoutes(app);
   void registerGameEventRoutes(app);
+  void registerEventOutboxRoutes(app);
   void registerPluginRoutes(app);
   void registerRewardRoutes(app);
   void registerPlayerResolutionRoutes(app);
