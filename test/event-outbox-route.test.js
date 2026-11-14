@@ -17,6 +17,7 @@ test("game event outbox claims are server-scoped and acknowledgements require th
   const principalId = randomUUID();
   const token = "cg_srv_" + randomBytes(36).toString("base64url");
   const eventId = randomUUID();
+  const chatEventId = randomUUID();
   const otherEventId = randomUUID();
 
   try {
@@ -32,15 +33,15 @@ test("game event outbox claims are server-scoped and acknowledgements require th
       [principalId, serverId]
     );
     await pool.query(
-      "INSERT INTO operations.event_outbox (id, event_type, aggregate_type, aggregate_id, payload) VALUES ($1, 'game.event.received', 'game_event', $2, $3::jsonb), ($4, 'game.event.received', 'game_event', $5, $6::jsonb)",
-      [eventId, randomUUID(), JSON.stringify({ serverId, eventType: "chat.global" }), otherEventId, randomUUID(), JSON.stringify({ serverId: otherServerId, eventType: "chat.global" })]
+      "INSERT INTO operations.event_outbox (id, event_type, aggregate_type, aggregate_id, payload) VALUES ($1, 'game.event.received', 'game_event', $2, $3::jsonb), ($4, 'game.event.received', 'game_event', $5, $6::jsonb), ($7, 'game.event.received', 'game_event', $8, $9::jsonb)",
+      [eventId, randomUUID(), JSON.stringify({ serverId, eventType: "tribe.member.joined" }), chatEventId, randomUUID(), JSON.stringify({ serverId, eventType: "chat.global" }), otherEventId, randomUUID(), JSON.stringify({ serverId: otherServerId, eventType: "tribe.member.joined" })]
     );
 
     const claim = () => app.inject({
       method: "POST",
       url: `/integrations/servers/${serverId}/events/claim`,
       headers: { authorization: "Bearer " + token },
-      payload: { limit: 10 }
+      payload: { limit: 10, eventTypes: ["tribe.member.joined"] }
     });
     const claimed = await claim();
     assert.equal(claimed.statusCode, 200);
@@ -48,6 +49,8 @@ test("game event outbox claims are server-scoped and acknowledgements require th
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, eventId);
     assert.ok(rows[0].leaseToken);
+    assert.equal(rows[0].payload.eventType, "tribe.member.joined");
+    assert.equal((await pool.query("SELECT lease_token FROM operations.event_outbox WHERE id = $1", [chatEventId])).rows[0].lease_token, null);
 
     const wrongLease = await app.inject({
       method: "POST",
@@ -70,8 +73,9 @@ test("game event outbox claims are server-scoped and acknowledgements require th
     assert.equal(duplicate.statusCode, 202);
     assert.equal(duplicate.json().data.duplicate, true);
     assert.equal((await pool.query("SELECT processed_at FROM operations.event_outbox WHERE id = $1", [eventId])).rows[0].processed_at === null, false);
+    assert.equal((await pool.query("SELECT processed_at FROM operations.event_outbox WHERE id = $1", [chatEventId])).rows[0].processed_at, null);
   } finally {
-    await pool.query("DELETE FROM operations.event_outbox WHERE id = ANY($1::uuid[])", [[eventId, otherEventId]]);
+    await pool.query("DELETE FROM operations.event_outbox WHERE id = ANY($1::uuid[])", [[eventId, chatEventId, otherEventId]]);
     await pool.query("DELETE FROM operations.audit_logs WHERE actor_principal_id = $1", [principalId]);
     await pool.query("DELETE FROM core.service_credentials WHERE principal_id = $1", [principalId]);
     await pool.query("DELETE FROM core.principal_role_assignments WHERE principal_id = $1", [principalId]);
