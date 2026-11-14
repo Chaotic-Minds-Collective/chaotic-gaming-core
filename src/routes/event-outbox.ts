@@ -5,7 +5,8 @@ import { pool } from "../db.js";
 
 const claimSchema = z.object({
   limit: z.number().int().min(1).max(100).default(25),
-  leaseSeconds: z.number().int().min(15).max(300).default(120)
+  leaseSeconds: z.number().int().min(15).max(300).default(120),
+  eventTypes: z.array(z.string().min(1).max(128)).min(1).max(50).optional()
 });
 
 const ackSchema = z.object({
@@ -35,6 +36,7 @@ export async function registerEventOutboxRoutes(app: FastifyInstance): Promise<v
              FROM operations.event_outbox eo
             WHERE eo.event_type = 'game.event.received'
               AND eo.payload->>'serverId' = $1
+              AND ($5::text[] IS NULL OR eo.payload->>'eventType' = ANY($5::text[]))
               AND eo.processed_at IS NULL
               AND eo.available_at <= NOW()
               AND (eo.lease_expires_at IS NULL OR eo.lease_expires_at <= NOW())
@@ -53,14 +55,14 @@ export async function registerEventOutboxRoutes(app: FastifyInstance): Promise<v
                    eo.aggregate_type AS "aggregateType", eo.aggregate_id AS "aggregateId",
                    eo.payload, eo.occurred_at AS "occurredAt", eo.attempts,
                    eo.lease_token AS "leaseToken", eo.lease_expires_at AS "leaseExpiresAt"`,
-        [params.data.serverId, body.data.limit, actorId, body.data.leaseSeconds]
+        [params.data.serverId, body.data.limit, actorId, body.data.leaseSeconds, body.data.eventTypes ?? null]
       );
 
       await client.query(
         `INSERT INTO operations.audit_logs
           (actor_principal_id, action, resource_type, resource_id, outcome, metadata)
          VALUES ($1, 'game.event.claim', 'server', $2, 'success', $3::jsonb)`,
-        [actorId, params.data.serverId, JSON.stringify({ claimedCount: claimed.rows.length })]
+        [actorId, params.data.serverId, JSON.stringify({ claimedCount: claimed.rows.length, eventTypes: body.data.eventTypes ?? null })]
       );
       await client.query("COMMIT");
       return { data: claimed.rows, requestId: request.id };

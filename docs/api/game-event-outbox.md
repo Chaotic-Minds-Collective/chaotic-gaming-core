@@ -11,12 +11,12 @@ Requires a service credential with the `game_event_consumer` role assigned to th
 Request:
 
 ```json
-{ "limit": 25, "leaseSeconds": 120 }
+{ "limit": 25, "leaseSeconds": 120, "eventTypes": ["tribe.member.joined"] }
 ```
 
-Both fields are optional. The claim limit defaults to 25 and is bounded from 1 to 100. Lease duration defaults to 120 seconds and is bounded from 15 to 300 seconds.
+`limit` and `leaseSeconds` are optional. The claim limit defaults to 25 and is bounded from 1 to 100. Lease duration defaults to 120 seconds and is bounded from 15 to 300 seconds. `eventTypes` is an optional, non-empty array of up to 50 event type strings (each 1–128 characters). When supplied, Core claims only records whose inner payload `eventType` exactly matches one of the requested values. When omitted, existing behavior is unchanged and all event types for the server remain eligible.
 
-Core claims only unprocessed `game.event.received` records whose payload `serverId` matches the requested server. Rows are ordered by outbox occurrence time and ID, locked with PostgreSQL `FOR UPDATE SKIP LOCKED`, and assigned to the authenticated service principal. Each claimed row receives a fresh, per-event UUID lease token and expiry. Expired leases can be reclaimed; concurrent workers do not block one another.
+Core claims only unprocessed `game.event.received` records whose payload `serverId` matches the requested server and, when `eventTypes` is supplied, whose payload `eventType` matches the filter. This lets independent plugins consume their own event families without leasing or acknowledging unrelated events. Rows are ordered by outbox occurrence time and ID, locked with PostgreSQL `FOR UPDATE SKIP LOCKED`, and assigned to the authenticated service principal. Each claimed row receives a fresh, per-event UUID lease token and expiry. Expired leases can be reclaimed; concurrent workers do not block one another.
 
 The response includes the outbox event ID, event type, aggregate metadata, payload, occurrence time, attempt count, lease token, and lease expiry. Treat the lease token as a secret and do not log it.
 
